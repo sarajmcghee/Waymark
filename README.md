@@ -98,6 +98,19 @@ GET /api/trails.geojson?state=TN&limit=500
 
 Ingest runs are recorded in `ingest_runs` so admin tools can show source history, accepted counts, status, and errors.
 
+ArcGIS ingest supports pagination:
+
+```json
+{
+  "source": "nps-public-trails-all",
+  "url": "https://mapservices.nps.gov/arcgis/rest/services/NationalDatasets/NPS_Public_Trails_Geographic/FeatureServer/0/query",
+  "where": "1=1",
+  "out_fields": "*",
+  "result_record_count": 1000,
+  "max_pages": 40
+}
+```
+
 The ingest endpoints are intended for admin workflows and can be protected with Firebase ID token verification by setting `FIREBASE_PROJECT_ID`.
 
 ## Data Sources To Start With
@@ -143,3 +156,15 @@ python scripts/import_states.py
 ```
 
 Then open `/admin` on the deployed service and run the source preset imports.
+Use **All NPS Public Trails** to load nationwide NPS trail coverage, then consumers can query by state:
+
+```http
+GET /api/trails.geojson?state=TN&limit=500
+GET /api/trails.geojson?state=California&limit=500
+```
+
+For the full national NPS import, prefer running this in a Render shell:
+
+```bash
+python scripts/import_nps_trails.py
+```

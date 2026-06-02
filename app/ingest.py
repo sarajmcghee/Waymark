@@ -285,29 +285,41 @@ def ingest_arcgis(
         source_url=str(request.url),
         source_type="arcgis",
         source_filter=request.where,
-        requested_count=request.result_record_count,
+        requested_count=request.result_record_count * max(request.max_pages, 1),
     )
-    params = {
-        "f": "geojson",
-        "where": request.where,
-        "outFields": request.out_fields,
-        "returnGeometry": "true",
-        "resultRecordCount": request.result_record_count,
-    }
     inserted = 0
     try:
-        response = httpx.get(str(request.url), params=params, timeout=60)
-        response.raise_for_status()
-        collection = response.json()
+        page_size = max(min(request.result_record_count, 2000), 1)
+        max_pages = max(request.max_pages, 1)
 
-        for feature in collection.get("features", []):
-            if _insert_feature(
-                conn,
-                source=request.source,
-                source_url=str(request.url),
-                feature=feature,
-            ):
-                inserted += 1
+        for page_index in range(max_pages):
+            params = {
+                "f": "geojson",
+                "where": request.where,
+                "outFields": request.out_fields,
+                "returnGeometry": "true",
+                "resultRecordCount": page_size,
+                "resultOffset": page_index * page_size,
+            }
+            response = httpx.get(str(request.url), params=params, timeout=120)
+            response.raise_for_status()
+            collection = response.json()
+            features = collection.get("features", [])
+
+            if not features:
+                break
+
+            for feature in features:
+                if _insert_feature(
+                    conn,
+                    source=request.source,
+                    source_url=str(request.url),
+                    feature=feature,
+                ):
+                    inserted += 1
+
+            if len(features) < page_size:
+                break
 
         _finish_ingest_run(conn, run_id=run_id, accepted_count=inserted, status="succeeded")
         conn.commit()

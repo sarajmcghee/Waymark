@@ -43,6 +43,7 @@ class ArcgisIngestRequest(BaseModel):
     where: str = "1=1"
     out_fields: str = "*"
     result_record_count: int = 2000
+    max_pages: int = 1
 
 
 class IngestRun(BaseModel):
