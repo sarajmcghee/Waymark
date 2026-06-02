@@ -13,7 +13,8 @@ from app.config import get_settings
 from app.ingest import _create_ingest_run, _finish_ingest_run, _insert_feature
 
 
-DEFAULT_OVERPASS_URL = "https://overpass.osm.ch/api/interpreter"
+DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+USER_AGENT = "Waymark/0.1 (trail data importer)"
 TRAIL_HIGHWAY_REGEX = "^(path|footway|bridleway|track|steps|pedestrian|cycleway)$"
 
 
@@ -110,7 +111,12 @@ def import_overpass(
         conn.commit()
 
         try:
-            response = httpx.post(endpoint, data={"data": query}, timeout=300)
+            response = httpx.post(
+                endpoint,
+                data={"data": query},
+                headers={"User-Agent": USER_AGENT},
+                timeout=300,
+            )
             if response.is_error:
                 raise RuntimeError(
                     f"Overpass returned {response.status_code}: {response.text[:500]}"
