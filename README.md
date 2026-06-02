@@ -68,6 +68,19 @@ GET /api/admin/source-presets
 `/map` is a lightweight local viewer for visually checking imported trail data.
 `/admin` is a local control panel for viewing counts, import history, and running source preset imports.
 
+## Firebase Auth
+
+Local development works without Firebase when Firebase env vars are blank. To require sign-in for admin APIs and `/admin` actions, set:
+
+```bash
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_API_KEY=your-web-api-key
+FIREBASE_AUTH_DOMAIN=your-project-id.firebaseapp.com
+FIREBASE_APP_ID=your-web-app-id
+```
+
+The API verifies Firebase ID tokens and requires a custom `admin: true` claim for protected admin/import endpoints.
+
 Trail collection endpoints support filters:
 
 ```http

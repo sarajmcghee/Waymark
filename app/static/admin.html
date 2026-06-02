@@ -92,6 +92,35 @@
         justify-content: flex-end;
       }
 
+      .auth-panel {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: #fff;
+      }
+
+      .auth-panel.visible {
+        display: flex;
+      }
+
+      .auth-panel p {
+        flex: 1;
+        min-width: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .auth-panel strong {
+        display: block;
+        color: var(--ink);
+        font-size: 14px;
+      }
+
       .link-button {
         display: inline-flex;
         min-height: 38px;
@@ -300,6 +329,14 @@
         </nav>
       </header>
 
+      <section id="auth-panel" class="auth-panel" aria-label="Authentication">
+        <p>
+          <strong id="auth-title">Firebase sign-in required</strong>
+          <span id="auth-detail">Sign in to manage imports.</span>
+        </p>
+        <button id="auth-button" type="button">Sign In</button>
+      </section>
+
       <section class="grid" aria-label="Waymark stats">
         <article class="stat">
           <strong id="trail-count">0</strong>
@@ -350,12 +387,20 @@
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-    <script>
+    <script type="module">
       const state = {
+        auth: null,
+        authRequired: false,
+        currentUser: null,
+        firebaseModules: null,
         presets: [],
       };
 
       const el = {
+        authPanel: document.querySelector("#auth-panel"),
+        authTitle: document.querySelector("#auth-title"),
+        authDetail: document.querySelector("#auth-detail"),
+        authButton: document.querySelector("#auth-button"),
         trailCount: document.querySelector("#trail-count"),
         sourceCount: document.querySelector("#source-count"),
         runCount: document.querySelector("#run-count"),
@@ -370,6 +415,31 @@
         el.toast.textContent = message;
         el.toast.classList.add("visible");
         window.setTimeout(() => el.toast.classList.remove("visible"), 3200);
+      }
+
+      async function authHeaders() {
+        if (!state.authRequired || !state.currentUser) {
+          return {};
+        }
+
+        const token = await state.currentUser.getIdToken();
+        return {
+          Authorization: `Bearer ${token}`,
+        };
+      }
+
+      async function apiFetch(url, options = {}) {
+        const headers = {
+          ...(await authHeaders()),
+          ...(options.headers || {}),
+        };
+        const response = await fetch(url, { ...options, headers });
+
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+
+        return response;
       }
 
       function formatDate(value) {
@@ -431,10 +501,14 @@
       }
 
       async function loadDashboard() {
+        if (state.authRequired && !state.currentUser) {
+          return;
+        }
+
         const [stats, presets, runs] = await Promise.all([
-          fetch("/api/admin/stats").then((response) => response.json()),
-          fetch("/api/admin/source-presets").then((response) => response.json()),
-          fetch("/api/ingest/runs?limit=6").then((response) => response.json()),
+          apiFetch("/api/admin/stats").then((response) => response.json()),
+          apiFetch("/api/admin/source-presets").then((response) => response.json()),
+          apiFetch("/api/ingest/runs?limit=6").then((response) => response.json()),
         ]);
 
         state.presets = presets;
@@ -455,7 +529,7 @@
         button.textContent = "Importing";
 
         try {
-          const response = await fetch("/api/ingest/arcgis", {
+          const response = await apiFetch("/api/ingest/arcgis", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -466,10 +540,6 @@
               result_record_count: preset.result_record_count,
             }),
           });
-
-          if (!response.ok) {
-            throw new Error(await response.text());
-          }
 
           const result = await response.json();
           showToast(`${preset.label}: ${result.accepted} features accepted.`);
@@ -482,7 +552,80 @@
         }
       }
 
+      function setAuthPanel() {
+        if (!state.authRequired) {
+          el.authPanel.classList.remove("visible");
+          return;
+        }
+
+        el.authPanel.classList.add("visible");
+        if (state.currentUser) {
+          el.authTitle.textContent = "Signed in";
+          el.authDetail.textContent = state.currentUser.email || state.currentUser.uid;
+          el.authButton.textContent = "Sign Out";
+        } else {
+          el.authTitle.textContent = "Firebase sign-in required";
+          el.authDetail.textContent = "Sign in with an admin account to manage imports.";
+          el.authButton.textContent = "Sign In";
+        }
+      }
+
+      async function initializeAuth() {
+        const firebaseConfig = await fetch("/api/admin/firebase-config").then((response) =>
+          response.json(),
+        );
+
+        state.authRequired = firebaseConfig.auth_required;
+        if (!state.authRequired) {
+          setAuthPanel();
+          await loadDashboard();
+          return;
+        }
+
+        const [{ initializeApp }, authModule] = await Promise.all([
+          import("https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js"),
+          import("https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js"),
+        ]);
+
+        const {
+          GoogleAuthProvider,
+          getAuth,
+          onAuthStateChanged,
+          signInWithPopup,
+          signOut,
+        } = authModule;
+
+        const app = initializeApp(firebaseConfig.config);
+        state.auth = getAuth(app);
+        state.firebaseModules = {
+          GoogleAuthProvider,
+          signInWithPopup,
+          signOut,
+        };
+
+        onAuthStateChanged(state.auth, async (user) => {
+          state.currentUser = user;
+          setAuthPanel();
+          if (user) {
+            await loadDashboard().catch((error) =>
+              showToast(`Dashboard failed: ${error.message}`),
+            );
+          }
+        });
+      }
+
       el.refreshButton.addEventListener("click", loadDashboard);
+      el.authButton.addEventListener("click", async () => {
+        if (!state.authRequired) return;
+
+        if (state.currentUser) {
+          await state.firebaseModules.signOut(state.auth);
+          return;
+        }
+
+        const provider = new state.firebaseModules.GoogleAuthProvider();
+        await state.firebaseModules.signInWithPopup(state.auth, provider);
+      });
       el.presetList.addEventListener("click", (event) => {
         const button = event.target.closest("button[data-preset]");
         if (button) {
@@ -490,7 +633,7 @@
         }
       });
 
-      loadDashboard().catch((error) => showToast(`Dashboard failed: ${error.message}`));
+      initializeAuth().catch((error) => showToast(`Auth failed: ${error.message}`));
     </script>
   </body>
 </html>
