@@ -109,3 +109,27 @@ The ingest endpoints are intended for admin workflows and can be protected with 
 - API responses are GeoJSON-friendly.
 - `source`, `source_id`, and `source_url` are first-class fields so downstream apps can display attribution.
 - Keep raw source payloads in `raw_properties` for traceability.
+
+## Render Deployment
+
+Use the Render Postgres internal database URL as `DATABASE_URL` on the Render web service. Do not commit database URLs because they include credentials.
+
+Build command:
+
+```bash
+pip install -r requirements.txt
+```
+
+Start command:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+After setting `DATABASE_URL`, run migrations from a Render shell:
+
+```bash
+python scripts/migrate.py
+```
+
+Then open `/admin` on the deployed service and run the source preset imports.
