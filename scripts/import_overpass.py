@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.ingest import _create_ingest_run, _finish_ingest_run, _insert_feature
 
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+DEFAULT_OVERPASS_URL = "https://overpass.osm.ch/api/interpreter"
 TRAIL_HIGHWAY_REGEX = "^(path|footway|bridleway|track|steps|pedestrian|cycleway)$"
 
 
@@ -90,6 +90,7 @@ def element_feature(element: dict[str, Any]) -> dict[str, Any] | None:
 
 def import_overpass(
     *,
+    endpoint: str,
     source: str,
     query: str,
     limit: int,
@@ -101,7 +102,7 @@ def import_overpass(
         run_id = _create_ingest_run(
             conn,
             source=source,
-            source_url=OVERPASS_URL,
+            source_url=endpoint,
             source_type="overpass-osm-json",
             source_filter=query.strip(),
             requested_count=limit,
@@ -109,8 +110,11 @@ def import_overpass(
         conn.commit()
 
         try:
-            response = httpx.post(OVERPASS_URL, data={"data": query}, timeout=300)
-            response.raise_for_status()
+            response = httpx.post(endpoint, data={"data": query}, timeout=300)
+            if response.is_error:
+                raise RuntimeError(
+                    f"Overpass returned {response.status_code}: {response.text[:500]}"
+                )
             payload = response.json()
 
             for element in payload.get("elements", []):
@@ -124,7 +128,7 @@ def import_overpass(
                 if _insert_feature(
                     conn,
                     source=source,
-                    source_url=OVERPASS_URL,
+                    source_url=endpoint,
                     feature=feature,
                 ):
                     inserted += 1
@@ -157,6 +161,7 @@ def main() -> None:
     group.add_argument("--bbox", help="Bounding box as west,south,east,north.")
     parser.add_argument("--limit", type=int, default=500)
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--endpoint", default=DEFAULT_OVERPASS_URL)
     args = parser.parse_args()
 
     if args.state:
@@ -166,7 +171,12 @@ def main() -> None:
         source = "osm-overpass-bbox"
         query = bbox_query(args.bbox, args.limit, args.timeout)
 
-    count = import_overpass(source=source, query=query, limit=args.limit)
+    count = import_overpass(
+        endpoint=args.endpoint,
+        source=source,
+        query=query,
+        limit=args.limit,
+    )
     print(f"Imported {count} Overpass trail-like ways into {source}.")
 
 
