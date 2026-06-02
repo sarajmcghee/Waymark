@@ -57,3 +57,9 @@ class IngestRun(BaseModel):
     error: str | None = None
     started_at: datetime
     completed_at: datetime | None = None
+
+
+class StateBoundary(BaseModel):
+    abbreviation: str
+    name: str
+    fips: str

@@ -56,6 +56,7 @@ GET /api/trails
 GET /api/trails/{trail_id}
 GET /api/trails/nearby?lat=35.61&lng=-83.49&radius_km=10
 GET /api/trails.geojson
+GET /api/states
 GET /map
 GET /admin
 POST /api/ingest/geojson
@@ -85,11 +86,14 @@ Trail collection endpoints support filters:
 
 ```http
 GET /api/trails?source=nps-public-trails-grsm
+GET /api/trails?state=TN
+GET /api/trails?state=North%20Carolina
 GET /api/trails?status=Existing
 GET /api/trails?use=hiking
 GET /api/trails?difficulty=Class%203:%20Developed
 GET /api/trails?surface=Native
 GET /api/trails.geojson?bbox=-84,35,-83,36&limit=500
+GET /api/trails.geojson?state=TN&limit=500
 ```
 
 Ingest runs are recorded in `ingest_runs` so admin tools can show source history, accepted counts, status, and errors.
@@ -130,6 +134,12 @@ After setting `DATABASE_URL`, run migrations from a Render shell:
 
 ```bash
 python scripts/migrate.py
+```
+
+Import U.S. state boundaries so `state=TN` style filters work:
+
+```bash
+python scripts/import_states.py
 ```
 
 Then open `/admin` on the deployed service and run the source preset imports.

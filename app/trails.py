@@ -6,7 +6,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from app.db import get_connection
-from app.models import FeatureCollection, TrailFeature
+from app.models import FeatureCollection, StateBoundary, TrailFeature
 
 router = APIRouter(prefix="/api", tags=["trails"])
 
@@ -38,6 +38,10 @@ def list_trails(
         description="Optional minLng,minLat,maxLng,maxLat filter.",
     ),
     source: str | None = Query(default=None),
+    state: str | None = Query(
+        default=None,
+        description="State abbreviation or name, such as TN or North Carolina.",
+    ),
     status: str | None = Query(default=None),
     use: str | None = Query(default=None, description="Allowed use, such as hiking."),
     difficulty: str | None = Query(default=None),
@@ -71,6 +75,22 @@ def list_trails(
     if source:
         params["source"] = source
         conditions.append("source = %(source)s")
+
+    if state:
+        params["state"] = state
+        conditions.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM states
+                WHERE (
+                    abbreviation = upper(%(state)s)
+                    OR lower(name) = lower(%(state)s)
+                )
+                AND ST_Intersects(trails.geometry, states.geometry)
+            )
+            """
+        )
 
     if status:
         params["status"] = status
@@ -111,6 +131,7 @@ def list_trails(
 def trails_geojson(
     bbox: str | None = None,
     source: str | None = None,
+    state: str | None = None,
     status: str | None = None,
     use: str | None = None,
     difficulty: str | None = None,
@@ -121,6 +142,7 @@ def trails_geojson(
     return list_trails(
         bbox=bbox,
         source=source,
+        state=state,
         status=status,
         use=use,
         difficulty=difficulty,
@@ -128,6 +150,18 @@ def trails_geojson(
         limit=limit,
         conn=conn,
     )
+
+
+@router.get("/states", response_model=list[StateBoundary])
+def list_states(conn: Connection = Depends(get_connection)) -> list[StateBoundary]:
+    sql = """
+        SELECT abbreviation, name, fips
+        FROM states
+        ORDER BY name
+    """
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql)
+        return [StateBoundary(**row) for row in cur.fetchall()]
 
 
 @router.get("/trails/nearby", response_model=FeatureCollection)
