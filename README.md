@@ -59,9 +59,23 @@ GET /api/trails.geojson
 GET /map
 POST /api/ingest/geojson
 POST /api/ingest/arcgis
+GET /api/ingest/runs
 ```
 
 `/map` is a lightweight local viewer for visually checking imported trail data.
+
+Trail collection endpoints support filters:
+
+```http
+GET /api/trails?source=nps-public-trails-grsm
+GET /api/trails?status=Existing
+GET /api/trails?use=hiking
+GET /api/trails?difficulty=Class%203:%20Developed
+GET /api/trails?surface=Native
+GET /api/trails.geojson?bbox=-84,35,-83,36&limit=500
+```
+
+Ingest runs are recorded in `ingest_runs` so admin tools can show source history, accepted counts, status, and errors.
 
 The ingest endpoints are intended for admin workflows and can be protected with Firebase ID token verification by setting `FIREBASE_PROJECT_ID`.
 

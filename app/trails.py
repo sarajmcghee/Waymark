@@ -37,11 +37,16 @@ def list_trails(
         default=None,
         description="Optional minLng,minLat,maxLng,maxLat filter.",
     ),
+    source: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    use: str | None = Query(default=None, description="Allowed use, such as hiking."),
+    difficulty: str | None = Query(default=None),
+    surface: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     conn: Connection = Depends(get_connection),
 ) -> FeatureCollection:
     params: dict[str, Any] = {"limit": limit}
-    where = ""
+    conditions: list[str] = []
 
     if bbox:
         parts = [float(part.strip()) for part in bbox.split(",")]
@@ -55,11 +60,37 @@ def list_trails(
                 "max_lat": parts[3],
             }
         )
-        where = """
-            WHERE geometry && ST_MakeEnvelope(
+        conditions.append(
+            """
+            geometry && ST_MakeEnvelope(
                 %(min_lng)s, %(min_lat)s, %(max_lng)s, %(max_lat)s, 4326
             )
-        """
+            """
+        )
+
+    if source:
+        params["source"] = source
+        conditions.append("source = %(source)s")
+
+    if status:
+        params["status"] = status
+        conditions.append("status = %(status)s")
+
+    if use:
+        params["use"] = use.lower()
+        conditions.append("%(use)s = ANY(allowed_uses)")
+
+    if difficulty:
+        params["difficulty"] = difficulty
+        conditions.append("difficulty = %(difficulty)s")
+
+    if surface:
+        params["surface"] = surface
+        conditions.append("surface = %(surface)s")
+
+    where = ""
+    if conditions:
+        where = "WHERE " + " AND ".join(conditions)
 
     sql = f"""
         SELECT *, ST_AsGeoJSON(geometry)::json AS geometry
@@ -79,10 +110,24 @@ def list_trails(
 @router.get("/trails.geojson", response_model=FeatureCollection)
 def trails_geojson(
     bbox: str | None = None,
+    source: str | None = None,
+    status: str | None = None,
+    use: str | None = None,
+    difficulty: str | None = None,
+    surface: str | None = None,
     limit: int = Query(default=500, ge=1, le=2000),
     conn: Connection = Depends(get_connection),
 ) -> FeatureCollection:
-    return list_trails(bbox=bbox, limit=limit, conn=conn)
+    return list_trails(
+        bbox=bbox,
+        source=source,
+        status=status,
+        use=use,
+        difficulty=difficulty,
+        surface=surface,
+        limit=limit,
+        conn=conn,
+    )
 
 
 @router.get("/trails/nearby", response_model=FeatureCollection)

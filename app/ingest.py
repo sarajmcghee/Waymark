@@ -4,13 +4,81 @@ import json
 import httpx
 from fastapi import APIRouter, Depends
 from psycopg import Connection
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from app.auth import require_admin
 from app.db import get_connection
-from app.models import ArcgisIngestRequest, GeoJsonIngestRequest
+from app.models import ArcgisIngestRequest, GeoJsonIngestRequest, IngestRun
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
+
+
+def _create_ingest_run(
+    conn: Connection,
+    *,
+    source: str,
+    source_url: str | None,
+    source_type: str,
+    source_filter: str | None,
+    requested_count: int | None,
+) -> str:
+    sql = """
+        INSERT INTO ingest_runs (
+            source,
+            source_url,
+            source_type,
+            source_filter,
+            requested_count
+        )
+        VALUES (
+            %(source)s,
+            %(source_url)s,
+            %(source_type)s,
+            %(source_filter)s,
+            %(requested_count)s
+        )
+        RETURNING id
+    """
+    row = conn.execute(
+        sql,
+        {
+            "source": source,
+            "source_url": source_url,
+            "source_type": source_type,
+            "source_filter": source_filter,
+            "requested_count": requested_count,
+        },
+    ).fetchone()
+    return str(row[0])
+
+
+def _finish_ingest_run(
+    conn: Connection,
+    *,
+    run_id: str,
+    accepted_count: int,
+    status: str,
+    error: str | None = None,
+) -> None:
+    sql = """
+        UPDATE ingest_runs
+        SET
+            accepted_count = %(accepted_count)s,
+            status = %(status)s,
+            error = %(error)s,
+            completed_at = clock_timestamp()
+        WHERE id = %(run_id)s
+    """
+    conn.execute(
+        sql,
+        {
+            "run_id": run_id,
+            "accepted_count": accepted_count,
+            "status": status,
+            "error": error,
+        },
+    )
 
 
 def _coerce_multiline(geometry: dict[str, Any]) -> dict[str, Any] | None:
@@ -169,18 +237,40 @@ def ingest_geojson(
     _: dict = Depends(require_admin),
     conn: Connection = Depends(get_connection),
 ) -> dict[str, int | str]:
+    source_url = str(request.source_url) if request.source_url else None
+    run_id = _create_ingest_run(
+        conn,
+        source=request.source,
+        source_url=source_url,
+        source_type="geojson",
+        source_filter=None,
+        requested_count=len(request.features),
+    )
     inserted = 0
-    for feature in request.features:
-        if _insert_feature(
-            conn,
-            source=request.source,
-            source_url=str(request.source_url) if request.source_url else None,
-            feature=feature,
-        ):
-            inserted += 1
+    try:
+        for feature in request.features:
+            if _insert_feature(
+                conn,
+                source=request.source,
+                source_url=source_url,
+                feature=feature,
+            ):
+                inserted += 1
 
-    conn.commit()
-    return {"source": request.source, "accepted": inserted}
+        _finish_ingest_run(conn, run_id=run_id, accepted_count=inserted, status="succeeded")
+        conn.commit()
+    except Exception as exc:
+        _finish_ingest_run(
+            conn,
+            run_id=run_id,
+            accepted_count=inserted,
+            status="failed",
+            error=str(exc),
+        )
+        conn.commit()
+        raise
+
+    return {"source": request.source, "accepted": inserted, "run_id": run_id}
 
 
 @router.post("/arcgis")
@@ -189,6 +279,14 @@ def ingest_arcgis(
     _: dict = Depends(require_admin),
     conn: Connection = Depends(get_connection),
 ) -> dict[str, int | str]:
+    run_id = _create_ingest_run(
+        conn,
+        source=request.source,
+        source_url=str(request.url),
+        source_type="arcgis",
+        source_filter=request.where,
+        requested_count=request.result_record_count,
+    )
     params = {
         "f": "geojson",
         "where": request.where,
@@ -196,19 +294,49 @@ def ingest_arcgis(
         "returnGeometry": "true",
         "resultRecordCount": request.result_record_count,
     }
-    response = httpx.get(str(request.url), params=params, timeout=60)
-    response.raise_for_status()
-    collection = response.json()
-
     inserted = 0
-    for feature in collection.get("features", []):
-        if _insert_feature(
-            conn,
-            source=request.source,
-            source_url=str(request.url),
-            feature=feature,
-        ):
-            inserted += 1
+    try:
+        response = httpx.get(str(request.url), params=params, timeout=60)
+        response.raise_for_status()
+        collection = response.json()
 
-    conn.commit()
-    return {"source": request.source, "accepted": inserted}
+        for feature in collection.get("features", []):
+            if _insert_feature(
+                conn,
+                source=request.source,
+                source_url=str(request.url),
+                feature=feature,
+            ):
+                inserted += 1
+
+        _finish_ingest_run(conn, run_id=run_id, accepted_count=inserted, status="succeeded")
+        conn.commit()
+    except Exception as exc:
+        _finish_ingest_run(
+            conn,
+            run_id=run_id,
+            accepted_count=inserted,
+            status="failed",
+            error=str(exc),
+        )
+        conn.commit()
+        raise
+
+    return {"source": request.source, "accepted": inserted, "run_id": run_id}
+
+
+@router.get("/runs", response_model=list[IngestRun])
+def list_ingest_runs(
+    limit: int = 25,
+    _: dict = Depends(require_admin),
+    conn: Connection = Depends(get_connection),
+) -> list[IngestRun]:
+    sql = """
+        SELECT *
+        FROM ingest_runs
+        ORDER BY started_at DESC
+        LIMIT %(limit)s
+    """
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, {"limit": min(max(limit, 1), 100)})
+        return [IngestRun(**row) for row in cur.fetchall()]

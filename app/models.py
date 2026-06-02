@@ -1,4 +1,5 @@
 from typing import Any
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field, HttpUrl
@@ -42,3 +43,17 @@ class ArcgisIngestRequest(BaseModel):
     where: str = "1=1"
     out_fields: str = "*"
     result_record_count: int = 2000
+
+
+class IngestRun(BaseModel):
+    id: UUID
+    source: str
+    source_url: str | None = None
+    source_type: str
+    source_filter: str | None = None
+    requested_count: int | None = None
+    accepted_count: int
+    status: str
+    error: str | None = None
+    started_at: datetime
+    completed_at: datetime | None = None
