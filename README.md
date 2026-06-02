@@ -198,3 +198,21 @@ GET /api/trails.geojson?state=TN&source=osm-geofabrik-tennessee&limit=500
 ```
 
 Geofabrik data comes from OpenStreetMap, so it is broader than official NPS data but should be treated as community-maintained data.
+
+On small Render instances, full Geofabrik `.osm.pbf` imports can run out of memory. Use Overpass for smaller OSM pulls:
+
+```bash
+python scripts/import_overpass.py --state TN --limit 500
+```
+
+Or by bounding box:
+
+```bash
+python scripts/import_overpass.py --bbox -84.1,35.2,-83.1,36.0 --limit 500
+```
+
+If a worker dies and leaves a run marked `running`, clean it up with:
+
+```bash
+python scripts/mark_stale_ingests_failed.py
+```
