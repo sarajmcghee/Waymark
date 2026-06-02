@@ -31,6 +31,21 @@ def state_query(state: str, limit: int, timeout: int) -> str:
     """
 
 
+def query_for_request(
+    *,
+    state: str | None,
+    bbox: str | None,
+    limit: int,
+    timeout: int,
+) -> str:
+    if state:
+        return state_query(state, limit, timeout)
+    if bbox:
+        return bbox_query(bbox, limit, timeout)
+
+    raise ValueError("state or bbox is required.")
+
+
 def bbox_query(bbox: str, limit: int, timeout: int) -> str:
     west, south, east, north = [part.strip() for part in bbox.split(",")]
     osm_bbox = f"{south},{west},{north},{east}"
@@ -158,6 +173,23 @@ def import_overpass(
             raise
 
     return inserted
+
+
+def import_overpass_request(
+    *,
+    source: str,
+    state: str | None,
+    bbox: str | None,
+    limit: int,
+    timeout: int = 180,
+    endpoint: str = DEFAULT_OVERPASS_URL,
+) -> int:
+    return import_overpass(
+        endpoint=endpoint,
+        source=source,
+        query=query_for_request(state=state, bbox=bbox, limit=limit, timeout=timeout),
+        limit=limit,
+    )
 
 
 def main() -> None:

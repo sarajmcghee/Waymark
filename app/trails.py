@@ -5,8 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg import Connection
 from psycopg.rows import dict_row
 
+from app.cache import (
+    get_cache_entry,
+    is_fresh,
+    mark_cache_failed,
+    mark_cache_fetching,
+    mark_cache_fresh,
+    source_for_request,
+)
 from app.db import get_connection
 from app.models import FeatureCollection, StateBoundary, TrailFeature
+from scripts.import_overpass import import_overpass_request
 
 router = APIRouter(prefix="/api", tags=["trails"])
 
@@ -38,6 +47,8 @@ def list_trails(
         description="Optional minLng,minLat,maxLng,maxLat filter.",
     ),
     source: str | None = Query(default=None),
+    provider: str | None = Query(default=None, pattern="^(osm|nps)$"),
+    fetch_if_missing: bool = Query(default=False),
     state: str | None = Query(
         default=None,
         description="State abbreviation or name, such as TN or North Carolina.",
@@ -49,6 +60,16 @@ def list_trails(
     limit: int = Query(default=100, ge=1, le=500),
     conn: Connection = Depends(get_connection),
 ) -> FeatureCollection:
+    source = _ensure_data_if_requested(
+        conn,
+        provider=provider,
+        source=source,
+        state=state,
+        bbox=bbox,
+        fetch_if_missing=fetch_if_missing,
+        limit=limit,
+    )
+
     params: dict[str, Any] = {"limit": limit}
     conditions: list[str] = []
 
@@ -131,6 +152,8 @@ def list_trails(
 def trails_geojson(
     bbox: str | None = None,
     source: str | None = None,
+    provider: str | None = Query(default=None, pattern="^(osm|nps)$"),
+    fetch_if_missing: bool = False,
     state: str | None = None,
     status: str | None = None,
     use: str | None = None,
@@ -142,6 +165,8 @@ def trails_geojson(
     return list_trails(
         bbox=bbox,
         source=source,
+        provider=provider,
+        fetch_if_missing=fetch_if_missing,
         state=state,
         status=status,
         use=use,
@@ -150,6 +175,94 @@ def trails_geojson(
         limit=limit,
         conn=conn,
     )
+
+
+def _ensure_data_if_requested(
+    conn: Connection,
+    *,
+    provider: str | None,
+    source: str | None,
+    state: str | None,
+    bbox: str | None,
+    fetch_if_missing: bool,
+    limit: int,
+) -> str | None:
+    if not provider:
+        return source
+
+    if source:
+        return source
+
+    resolved_source = source_for_request(provider, state, bbox)
+    if not fetch_if_missing:
+        return resolved_source
+
+    if provider != "osm":
+        raise HTTPException(
+            status_code=400,
+            detail="On-demand fetching currently supports provider=osm only.",
+        )
+
+    if not state and not bbox:
+        raise HTTPException(
+            status_code=400,
+            detail="state or bbox is required for on-demand OSM fetching.",
+        )
+
+    if limit > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="On-demand OSM fetch limit cannot exceed 500.",
+        )
+
+    entry = get_cache_entry(
+        conn,
+        provider=provider,
+        source=resolved_source,
+        state=state,
+        bbox=bbox,
+    )
+    if is_fresh(entry):
+        return resolved_source
+
+    mark_cache_fetching(
+        conn,
+        provider=provider,
+        source=resolved_source,
+        state=state,
+        bbox=bbox,
+    )
+    conn.commit()
+
+    try:
+        count = import_overpass_request(
+            source=resolved_source,
+            state=state,
+            bbox=bbox,
+            limit=limit,
+        )
+        mark_cache_fresh(
+            conn,
+            provider=provider,
+            source=resolved_source,
+            state=state,
+            bbox=bbox,
+            feature_count=count,
+        )
+        conn.commit()
+    except Exception as exc:
+        mark_cache_failed(
+            conn,
+            provider=provider,
+            source=resolved_source,
+            state=state,
+            bbox=bbox,
+            error=str(exc),
+        )
+        conn.commit()
+        raise HTTPException(status_code=502, detail=f"OSM fetch failed: {exc}") from exc
+
+    return resolved_source
 
 
 @router.get("/states", response_model=list[StateBoundary])

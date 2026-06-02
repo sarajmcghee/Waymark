@@ -96,6 +96,15 @@ GET /api/trails.geojson?bbox=-84,35,-83,36&limit=500
 GET /api/trails.geojson?state=TN&limit=500
 ```
 
+Waymark can lazily fetch and cache OSM trails on demand:
+
+```http
+GET /api/trails.geojson?provider=osm&state=TN&fetch_if_missing=true&limit=500
+GET /api/trails.geojson?provider=osm&bbox=-84.1,35.2,-83.1,36.0&fetch_if_missing=true&limit=500
+```
+
+On-demand fetches are cached in `trail_cache_entries` for later requests.
+
 Ingest runs are recorded in `ingest_runs` so admin tools can show source history, accepted counts, status, and errors.
 
 ArcGIS ingest supports pagination:
