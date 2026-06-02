@@ -1,11 +1,15 @@
 from pathlib import Path
+import sys
 
 import psycopg
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.config import get_settings
 
 
-MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "db" / "migrations"
+MIGRATIONS_DIR = PROJECT_ROOT / "db" / "migrations"
 
 
 def main() -> None:
