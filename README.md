@@ -168,3 +168,33 @@ For the full national NPS import, prefer running this in a Render shell:
 ```bash
 python scripts/import_nps_trails.py
 ```
+
+## Geofabrik / OpenStreetMap Imports
+
+Waymark can also import trail-like OpenStreetMap ways from Geofabrik `.osm.pbf` extracts. Import one state/region at a time.
+
+Test a small import:
+
+```bash
+python scripts/import_geofabrik.py tennessee --limit 100
+```
+
+Import a full state extract:
+
+```bash
+python scripts/import_geofabrik.py tennessee
+```
+
+The source name will be:
+
+```text
+osm-geofabrik-tennessee
+```
+
+Then query it with:
+
+```http
+GET /api/trails.geojson?state=TN&source=osm-geofabrik-tennessee&limit=500
+```
+
+Geofabrik data comes from OpenStreetMap, so it is broader than official NPS data but should be treated as community-maintained data.
