@@ -1,0 +1,44 @@
+from typing import Any
+from uuid import UUID
+
+from pydantic import BaseModel, Field, HttpUrl
+
+
+class TrailProperties(BaseModel):
+    name: str | None = None
+    length_meters: float | None = None
+    difficulty: str | None = None
+    surface: str | None = None
+    allowed_uses: list[str] = Field(default_factory=list)
+    managing_agency: str | None = None
+    status: str = "unknown"
+    source: str
+    source_id: str | None = None
+    source_url: str | None = None
+    raw_properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class TrailFeature(BaseModel):
+    type: str = "Feature"
+    id: UUID
+    geometry: dict[str, Any]
+    properties: TrailProperties
+
+
+class FeatureCollection(BaseModel):
+    type: str = "FeatureCollection"
+    features: list[TrailFeature]
+
+
+class GeoJsonIngestRequest(BaseModel):
+    source: str
+    source_url: HttpUrl | None = None
+    features: list[dict[str, Any]]
+
+
+class ArcgisIngestRequest(BaseModel):
+    source: str
+    url: HttpUrl
+    where: str = "1=1"
+    out_fields: str = "*"
+    result_record_count: int = 2000

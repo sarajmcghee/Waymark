@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgis/postgis:16-3.5
+    platform: linux/amd64
+    environment:
+      POSTGRES_DB: waymark
+      POSTGRES_USER: waymark
+      POSTGRES_PASSWORD: waymark
+    ports:
+      - "5432:5432"
+    volumes:
+      - waymark_postgis:/var/lib/postgresql/data
+
+volumes:
+  waymark_postgis:

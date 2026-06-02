@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Waymark Trail Map</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/maplibre-gl@5.10.0/dist/maplibre-gl.css"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #18201b;
+        --muted: #68736c;
+        --panel: #ffffff;
+        --trail: #df4f37;
+        --trail-dark: #8f2c1e;
+        --ring: rgba(24, 32, 27, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      #map {
+        position: fixed;
+        inset: 0;
+      }
+
+      .topbar {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        right: 16px;
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        pointer-events: none;
+      }
+
+      .brand,
+      .stats {
+        pointer-events: auto;
+        border: 1px solid var(--ring);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: 0 14px 40px rgba(35, 39, 34, 0.18);
+        backdrop-filter: blur(10px);
+      }
+
+      .brand {
+        min-width: 220px;
+        padding: 12px 14px;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.1;
+        font-weight: 750;
+        letter-spacing: 0;
+      }
+
+      .brand p {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.3;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(86px, 1fr));
+        min-width: 210px;
+        overflow: hidden;
+      }
+
+      .stat {
+        padding: 11px 13px;
+      }
+
+      .stat + .stat {
+        border-left: 1px solid var(--ring);
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 18px;
+        line-height: 1;
+      }
+
+      .stat span {
+        display: block;
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .maplibregl-popup-content {
+        border-radius: 8px;
+        padding: 12px;
+      }
+
+      .popup-title {
+        margin: 0 0 6px;
+        font-size: 15px;
+        font-weight: 750;
+      }
+
+      .popup-meta {
+        margin: 0;
+        color: #59635d;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      @media (max-width: 640px) {
+        .topbar {
+          top: 10px;
+          left: 10px;
+          right: 10px;
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .brand,
+        .stats {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="map" aria-label="Waymark trail map"></main>
+    <aside class="topbar">
+      <section class="brand" aria-label="Map title">
+        <h1>Waymark</h1>
+        <p>Great Smoky Mountains trail data</p>
+      </section>
+      <section class="stats" aria-label="Trail statistics">
+        <div class="stat">
+          <strong id="trail-count">0</strong>
+          <span>trails loaded</span>
+        </div>
+        <div class="stat">
+          <strong>NPS</strong>
+          <span>source</span>
+        </div>
+      </section>
+    </aside>
+
+    <script src="https://unpkg.com/maplibre-gl@5.10.0/dist/maplibre-gl.js"></script>
+    <script>
+      const map = new maplibregl.Map({
+        container: "map",
+        center: [-83.49, 35.62],
+        zoom: 9,
+        style: {
+          version: 8,
+          sources: {
+            osm: {
+              type: "raster",
+              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tileSize: 256,
+              attribution: "OpenStreetMap contributors",
+            },
+          },
+          layers: [
+            {
+              id: "osm",
+              type: "raster",
+              source: "osm",
+            },
+          ],
+        },
+      });
+
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+
+      function clean(value) {
+        return value || "Unknown";
+      }
+
+      function extendBounds(bounds, coordinates) {
+        if (typeof coordinates[0] === "number") {
+          bounds.extend(coordinates);
+          return;
+        }
+
+        coordinates.forEach((child) => extendBounds(bounds, child));
+      }
+
+      function popupHtml(properties) {
+        return `
+          <h2 class="popup-title">${clean(properties.name)}</h2>
+          <p class="popup-meta">
+            ${clean(properties.difficulty)}<br />
+            Surface: ${clean(properties.surface)}<br />
+            Status: ${clean(properties.status)}
+          </p>
+        `;
+      }
+
+      map.on("load", async () => {
+        const response = await fetch("/api/trails.geojson?limit=500");
+        const collection = await response.json();
+        document.getElementById("trail-count").textContent = collection.features.length;
+
+        map.addSource("trails", {
+          type: "geojson",
+          data: collection,
+        });
+
+        map.addLayer({
+          id: "trail-glow",
+          type: "line",
+          source: "trails",
+          paint: {
+            "line-color": "#ffffff",
+            "line-opacity": 0.9,
+            "line-width": 7,
+          },
+        });
+
+        map.addLayer({
+          id: "trails",
+          type: "line",
+          source: "trails",
+          paint: {
+            "line-color": ["case", ["boolean", ["feature-state", "hover"], false], "#8f2c1e", "#df4f37"],
+            "line-opacity": 0.95,
+            "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 5, 3],
+          },
+        });
+
+        const bounds = new maplibregl.LngLatBounds();
+        collection.features.forEach((feature) => {
+          if (feature.geometry?.coordinates) {
+            extendBounds(bounds, feature.geometry.coordinates);
+          }
+        });
+
+        if (!bounds.isEmpty()) {
+          map.fitBounds(bounds, {
+            padding: { top: 170, right: 28, bottom: 34, left: 28 },
+            maxZoom: 12,
+            duration: 0,
+          });
+        }
+
+        let hoveredId = null;
+        map.on("mousemove", "trails", (event) => {
+          map.getCanvas().style.cursor = "pointer";
+          if (hoveredId !== null) {
+            map.setFeatureState({ source: "trails", id: hoveredId }, { hover: false });
+          }
+          hoveredId = event.features[0].id;
+          map.setFeatureState({ source: "trails", id: hoveredId }, { hover: true });
+        });
+
+        map.on("mouseleave", "trails", () => {
+          map.getCanvas().style.cursor = "";
+          if (hoveredId !== null) {
+            map.setFeatureState({ source: "trails", id: hoveredId }, { hover: false });
+          }
+          hoveredId = null;
+        });
+
+        map.on("click", "trails", (event) => {
+          new maplibregl.Popup()
+            .setLngLat(event.lngLat)
+            .setHTML(popupHtml(event.features[0].properties))
+            .addTo(map);
+        });
+      });
+    </script>
+  </body>
+</html>
