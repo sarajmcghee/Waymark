@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Waymark Admin</title>
+    <style>
+      :root {
+        --ink: #18201b;
+        --muted: #66726b;
+        --paper: #f5f3ee;
+        --panel: #ffffff;
+        --line: #dedbd2;
+        --trail: #df4f37;
+        --trail-dark: #8f2c1e;
+        --green: #23664a;
+        --red: #a33223;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: var(--paper);
+      }
+
+      a {
+        color: inherit;
+      }
+
+      button {
+        min-height: 38px;
+        border: 1px solid var(--trail-dark);
+        border-radius: 7px;
+        padding: 0 12px;
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        background: var(--trail);
+        cursor: pointer;
+      }
+
+      button:disabled {
+        border-color: #c8c3ba;
+        color: #746f67;
+        background: #ebe7df;
+        cursor: progress;
+      }
+
+      .shell {
+        width: min(1120px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 24px 0 40px;
+      }
+
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(28px, 5vw, 44px);
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .link-button {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 0 12px;
+        text-decoration: none;
+        font-weight: 700;
+        background: #fff;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .stat,
+      .panel,
+      .preset,
+      .run {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 8px 30px rgba(38, 42, 36, 0.07);
+      }
+
+      .stat {
+        padding: 18px;
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 30px;
+        line-height: 1;
+      }
+
+      .stat span {
+        display: block;
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+        gap: 16px;
+      }
+
+      .panel {
+        padding: 18px;
+      }
+
+      .panel h2 {
+        font-size: 18px;
+        line-height: 1.2;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .preset-list,
+      .run-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .preset {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 13px;
+      }
+
+      .preset h3,
+      .run strong {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.25;
+      }
+
+      .preset p,
+      .run p {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .run {
+        padding: 13px;
+      }
+
+      .run-top {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .badge {
+        flex: 0 0 auto;
+        border-radius: 999px;
+        padding: 4px 8px;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 750;
+        background: var(--muted);
+      }
+
+      .badge.succeeded {
+        background: var(--green);
+      }
+
+      .badge.failed {
+        background: var(--red);
+      }
+
+      .source-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        border-top: 1px solid var(--line);
+        padding: 10px 0;
+        font-size: 14px;
+      }
+
+      .source-row:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .source-row:last-child {
+        padding-bottom: 0;
+      }
+
+      .toast {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        z-index: 5;
+        max-width: min(420px, calc(100vw - 32px));
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        color: #fff;
+        background: #263128;
+        box-shadow: 0 12px 40px rgba(24, 32, 27, 0.2);
+        transform: translateY(120px);
+        opacity: 0;
+        transition: transform 180ms ease, opacity 180ms ease;
+      }
+
+      .toast.visible {
+        transform: translateY(0);
+        opacity: 1;
+      }
+
+      @media (max-width: 860px) {
+        .top,
+        .layout {
+          display: block;
+        }
+
+        .actions {
+          justify-content: flex-start;
+          margin-top: 16px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .panel + .panel {
+          margin-top: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="top">
+        <div>
+          <h1>Waymark Admin</h1>
+          <p class="subtitle">Import, inspect, and serve trail data.</p>
+        </div>
+        <nav class="actions" aria-label="Admin links">
+          <a class="link-button" href="/map">Map</a>
+          <a class="link-button" href="/docs">API Docs</a>
+          <button id="refresh-button" type="button">Refresh</button>
+        </nav>
+      </header>
+
+      <section class="grid" aria-label="Waymark stats">
+        <article class="stat">
+          <strong id="trail-count">0</strong>
+          <span>trail features</span>
+        </article>
+        <article class="stat">
+          <strong id="source-count">0</strong>
+          <span>data sources</span>
+        </article>
+        <article class="stat">
+          <strong id="run-count">0</strong>
+          <span>ingest runs</span>
+        </article>
+      </section>
+
+      <section class="layout">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Source Presets</h2>
+              <p class="muted">Run official NPS trail imports.</p>
+            </div>
+          </div>
+          <div id="preset-list" class="preset-list"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Recent Runs</h2>
+              <p class="muted">Latest source import history.</p>
+            </div>
+          </div>
+          <div id="run-list" class="run-list"></div>
+        </article>
+      </section>
+
+      <section class="panel" style="margin-top: 16px">
+        <div class="panel-head">
+          <div>
+            <h2>Sources</h2>
+            <p class="muted">Trail counts currently stored in PostGIS.</p>
+          </div>
+        </div>
+        <div id="source-list"></div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      const state = {
+        presets: [],
+      };
+
+      const el = {
+        trailCount: document.querySelector("#trail-count"),
+        sourceCount: document.querySelector("#source-count"),
+        runCount: document.querySelector("#run-count"),
+        presetList: document.querySelector("#preset-list"),
+        runList: document.querySelector("#run-list"),
+        sourceList: document.querySelector("#source-list"),
+        refreshButton: document.querySelector("#refresh-button"),
+        toast: document.querySelector("#toast"),
+      };
+
+      function showToast(message) {
+        el.toast.textContent = message;
+        el.toast.classList.add("visible");
+        window.setTimeout(() => el.toast.classList.remove("visible"), 3200);
+      }
+
+      function formatDate(value) {
+        if (!value) return "Not completed";
+        return new Intl.DateTimeFormat(undefined, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(new Date(value));
+      }
+
+      function renderPresets() {
+        el.presetList.innerHTML = state.presets
+          .map(
+            (preset) => `
+              <section class="preset">
+                <div>
+                  <h3>${preset.label}</h3>
+                  <p>${preset.agency} · ${preset.where}</p>
+                </div>
+                <button type="button" data-preset="${preset.id}">Import</button>
+              </section>
+            `,
+          )
+          .join("");
+      }
+
+      function renderRuns(runs) {
+        el.runList.innerHTML =
+          runs
+            .map(
+              (run) => `
+                <section class="run">
+                  <div class="run-top">
+                    <div>
+                      <strong>${run.source}</strong>
+                      <p>${run.accepted_count} accepted · ${formatDate(run.completed_at)}</p>
+                    </div>
+                    <span class="badge ${run.status}">${run.status}</span>
+                  </div>
+                  ${run.error ? `<p>${run.error}</p>` : ""}
+                </section>
+              `,
+            )
+            .join("") || '<p class="muted">No import runs yet.</p>';
+      }
+
+      function renderSources(sources) {
+        el.sourceList.innerHTML =
+          sources
+            .map(
+              (source) => `
+                <div class="source-row">
+                  <span>${source.source}</span>
+                  <strong>${source.trail_count}</strong>
+                </div>
+              `,
+            )
+            .join("") || '<p class="muted">No sources loaded.</p>';
+      }
+
+      async function loadDashboard() {
+        const [stats, presets, runs] = await Promise.all([
+          fetch("/api/admin/stats").then((response) => response.json()),
+          fetch("/api/admin/source-presets").then((response) => response.json()),
+          fetch("/api/ingest/runs?limit=6").then((response) => response.json()),
+        ]);
+
+        state.presets = presets;
+        el.trailCount.textContent = stats.trail_count;
+        el.sourceCount.textContent = stats.source_count;
+        el.runCount.textContent = stats.ingest_run_count;
+
+        renderPresets();
+        renderRuns(runs);
+        renderSources(stats.sources);
+      }
+
+      async function runImport(presetId, button) {
+        const preset = state.presets.find((item) => item.id === presetId);
+        if (!preset) return;
+
+        button.disabled = true;
+        button.textContent = "Importing";
+
+        try {
+          const response = await fetch("/api/ingest/arcgis", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source: preset.source,
+              url: preset.url,
+              where: preset.where,
+              out_fields: preset.out_fields,
+              result_record_count: preset.result_record_count,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(await response.text());
+          }
+
+          const result = await response.json();
+          showToast(`${preset.label}: ${result.accepted} features accepted.`);
+          await loadDashboard();
+        } catch (error) {
+          showToast(`Import failed: ${error.message}`);
+        } finally {
+          button.disabled = false;
+          button.textContent = "Import";
+        }
+      }
+
+      el.refreshButton.addEventListener("click", loadDashboard);
+      el.presetList.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-preset]");
+        if (button) {
+          runImport(button.dataset.preset, button);
+        }
+      });
+
+      loadDashboard().catch((error) => showToast(`Dashboard failed: ${error.message}`));
+    </script>
+  </body>
+</html>

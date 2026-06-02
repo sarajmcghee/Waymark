@@ -57,12 +57,16 @@ GET /api/trails/{trail_id}
 GET /api/trails/nearby?lat=35.61&lng=-83.49&radius_km=10
 GET /api/trails.geojson
 GET /map
+GET /admin
 POST /api/ingest/geojson
 POST /api/ingest/arcgis
 GET /api/ingest/runs
+GET /api/admin/stats
+GET /api/admin/source-presets
 ```
 
 `/map` is a lightweight local viewer for visually checking imported trail data.
+`/admin` is a local control panel for viewing counts, import history, and running source preset imports.
 
 Trail collection endpoints support filters:
 

@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.admin import router as admin_router
 from app.auth import initialize_firebase
 from app.config import get_cors_origins, get_settings
 from app.db import close_pool, open_pool
@@ -49,5 +50,11 @@ def map_viewer() -> FileResponse:
     return FileResponse("app/static/map.html")
 
 
+@app.get("/admin", include_in_schema=False)
+def admin_dashboard() -> FileResponse:
+    return FileResponse("app/static/admin.html")
+
+
+app.include_router(admin_router)
 app.include_router(trails_router)
 app.include_router(ingest_router)
