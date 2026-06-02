@@ -17,6 +17,7 @@
         --trail: #df4f37;
         --trail-dark: #8f2c1e;
         --ring: rgba(24, 32, 27, 0.14);
+        --field: #f8f6f0;
       }
 
       * {
@@ -62,6 +63,54 @@
       .brand {
         min-width: 220px;
         padding: 12px 14px;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .controls input,
+      .controls select,
+      .controls button {
+        min-width: 0;
+        min-height: 34px;
+        border: 1px solid var(--ring);
+        border-radius: 7px;
+        padding: 0 9px;
+        color: var(--ink);
+        font: inherit;
+        font-size: 13px;
+        background: var(--field);
+      }
+
+      .controls button {
+        color: #fff;
+        font-weight: 750;
+        background: var(--trail);
+        cursor: pointer;
+      }
+
+      .presets {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+
+      .presets button {
+        min-height: 28px;
+        border: 1px solid var(--ring);
+        border-radius: 999px;
+        padding: 0 9px;
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        background: #fff;
+        cursor: pointer;
       }
 
       .brand h1 {
@@ -138,6 +187,14 @@
         .stats {
           width: 100%;
         }
+
+        .controls {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .controls button {
+          grid-column: span 2;
+        }
       }
     </style>
   </head>
@@ -146,7 +203,28 @@
     <aside class="topbar">
       <section class="brand" aria-label="Map title">
         <h1>Waymark</h1>
-        <p>Great Smoky Mountains trail data</p>
+        <p id="map-subtitle">Trail data</p>
+        <form id="filter-form" class="controls">
+          <select id="source-input" aria-label="Source">
+            <option value="">All sources</option>
+            <option value="nps-public-trails-grsm">NPS Smokies</option>
+            <option value="osm-overpass-tn">OSM Tennessee</option>
+          </select>
+          <input id="state-input" aria-label="State" placeholder="State" />
+          <input id="limit-input" aria-label="Limit" inputmode="numeric" placeholder="Limit" />
+          <button type="submit">Load</button>
+        </form>
+        <div class="presets" aria-label="Map presets">
+          <button type="button" data-source="nps-public-trails-grsm" data-state="" data-limit="500">
+            NPS Smokies
+          </button>
+          <button type="button" data-source="osm-overpass-tn" data-state="TN" data-limit="500">
+            OSM TN
+          </button>
+          <button type="button" data-source="" data-state="TN" data-limit="500">
+            All TN
+          </button>
+        </div>
       </section>
       <section class="stats" aria-label="Trail statistics">
         <div class="stat">
@@ -154,7 +232,7 @@
           <span>trails loaded</span>
         </div>
         <div class="stat">
-          <strong>NPS</strong>
+          <strong id="source-label">All</strong>
           <span>source</span>
         </div>
       </section>
@@ -188,6 +266,18 @@
 
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
 
+      const params = new URLSearchParams(window.location.search);
+      const sourceInput = document.getElementById("source-input");
+      const stateInput = document.getElementById("state-input");
+      const limitInput = document.getElementById("limit-input");
+      const subtitle = document.getElementById("map-subtitle");
+      const trailCount = document.getElementById("trail-count");
+      const sourceLabel = document.getElementById("source-label");
+
+      sourceInput.value = params.get("source") || "";
+      stateInput.value = params.get("state") || "";
+      limitInput.value = params.get("limit") || "500";
+
       function clean(value) {
         return value || "Unknown";
       }
@@ -212,37 +302,72 @@
         `;
       }
 
-      map.on("load", async () => {
-        const response = await fetch("/api/trails.geojson?limit=500");
+      function queryUrl() {
+        const query = new URLSearchParams();
+        const source = sourceInput.value.trim();
+        const state = stateInput.value.trim();
+        const limit = limitInput.value.trim() || "500";
+
+        if (source) query.set("source", source);
+        if (state) query.set("state", state);
+        query.set("limit", limit);
+
+        return `/api/trails.geojson?${query.toString()}`;
+      }
+
+      function updateUrl() {
+        window.history.replaceState(null, "", `/map?${queryUrl().split("?")[1]}`);
+      }
+
+      function updateLabels(collection) {
+        const source = sourceInput.value.trim();
+        const state = stateInput.value.trim();
+        trailCount.textContent = collection.features.length;
+        sourceLabel.textContent = source ? source.replace("nps-public-trails-", "nps-").replace("osm-overpass-", "osm-") : "All";
+        subtitle.textContent = [
+          source || "All trail sources",
+          state ? `state ${state}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+
+      async function loadTrails() {
+        const response = await fetch(queryUrl());
         const collection = await response.json();
-        document.getElementById("trail-count").textContent = collection.features.length;
+        updateLabels(collection);
+        updateUrl();
 
-        map.addSource("trails", {
-          type: "geojson",
-          data: collection,
-        });
+        if (map.getSource("trails")) {
+          map.getSource("trails").setData(collection);
+        } else {
+          map.addSource("trails", {
+            type: "geojson",
+            data: collection,
+          });
 
-        map.addLayer({
-          id: "trail-glow",
-          type: "line",
-          source: "trails",
-          paint: {
-            "line-color": "#ffffff",
-            "line-opacity": 0.9,
-            "line-width": 7,
-          },
-        });
+          map.addLayer({
+            id: "trail-glow",
+            type: "line",
+            source: "trails",
+            paint: {
+              "line-color": "#ffffff",
+              "line-opacity": 0.9,
+              "line-width": 7,
+            },
+          });
 
-        map.addLayer({
-          id: "trails",
-          type: "line",
-          source: "trails",
-          paint: {
-            "line-color": ["case", ["boolean", ["feature-state", "hover"], false], "#8f2c1e", "#df4f37"],
-            "line-opacity": 0.95,
-            "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 5, 3],
-          },
-        });
+          map.addLayer({
+            id: "trails",
+            type: "line",
+            source: "trails",
+            paint: {
+              "line-color": ["case", ["boolean", ["feature-state", "hover"], false], "#8f2c1e", "#df4f37"],
+              "line-opacity": 0.95,
+              "line-width": ["case", ["boolean", ["feature-state", "hover"], false], 5, 3],
+            },
+          });
+        }
 
         const bounds = new maplibregl.LngLatBounds();
         collection.features.forEach((feature) => {
@@ -258,6 +383,10 @@
             duration: 0,
           });
         }
+      }
+
+      map.on("load", async () => {
+        await loadTrails();
 
         let hoveredId = null;
         map.on("mousemove", "trails", (event) => {
@@ -283,6 +412,20 @@
             .setHTML(popupHtml(event.features[0].properties))
             .addTo(map);
         });
+      });
+
+      document.getElementById("filter-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await loadTrails();
+      });
+
+      document.querySelector(".presets").addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-source]");
+        if (!button) return;
+        sourceInput.value = button.dataset.source;
+        stateInput.value = button.dataset.state;
+        limitInput.value = button.dataset.limit;
+        await loadTrails();
       });
     </script>
   </body>
