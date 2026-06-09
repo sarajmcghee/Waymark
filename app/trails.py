@@ -325,7 +325,13 @@ def nearby_trails(
     sql = """
         SELECT *, ST_AsGeoJSON(geometry)::json AS geometry
         FROM trails
-        WHERE ST_DWithin(
+        WHERE geometry && ST_Envelope(
+            ST_Buffer(
+                geography(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)),
+                %(radius_m)s
+            )::geometry
+        )
+        AND ST_DWithin(
             geography(geometry),
             geography(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)),
             %(radius_m)s
