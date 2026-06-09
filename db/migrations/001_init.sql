@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS trails (
     allowed_uses text[] NOT NULL DEFAULT '{}',
     managing_agency text,
     status text NOT NULL DEFAULT 'unknown',
+    is_route_segment boolean NOT NULL DEFAULT false,
+    route_relation_ids text[] NOT NULL DEFAULT '{}',
     source text NOT NULL,
     source_id text,
     source_url text,

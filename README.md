@@ -95,6 +95,8 @@ GET /api/trails?state=North%20Carolina
 GET /api/trails?status=Existing
 GET /api/trails?use=hiking
 GET /api/trails?trail_type=hiking_route
+GET /api/trails?include_segments=true
+GET /api/trails?min_length_km=3&max_length_km=15
 GET /api/trails?difficulty=Class%203:%20Developed
 GET /api/trails?surface=Native
 GET /api/trails.geojson?bbox=-84,35,-83,36&limit=500
@@ -238,6 +240,15 @@ ways plus all member ways from those relations. Route names, references,
 networks, operators, and memberships are retained in `raw_properties`.
 Normalized `trail_type` values include `hiking_route`, `mountain_bike_route`,
 `alpine_hiking_trail`, `footpath`, `path`, `track`, and other path types.
+
+After importing ways, Waymark merges each OSM route relation into one trail
+feature and calculates `length_meters` from its PostGIS geography. Member
+segments remain stored for traceability but are hidden from API responses by
+default. Pass `include_segments=true` to inspect the underlying OSM ways.
+
+For data imported before route consolidation was added, run the **Normalize
+existing trails** GitHub Actions workflow. To expand beyond a single state, run
+**Expand Geofabrik coverage** and choose Tennessee neighbors or the Southeast.
 
 The importer uses a disk-backed Osmium node-location index to reduce memory use.
 State extracts can still require significant temporary disk space and processing

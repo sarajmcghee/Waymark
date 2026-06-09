@@ -1,0 +1,70 @@
+name: Expand Geofabrik coverage
+
+on:
+  workflow_dispatch:
+    inputs:
+      region_set:
+        description: "State group to import"
+        required: true
+        default: "tennessee-neighbors"
+        type: choice
+        options:
+          - tennessee-neighbors
+          - southeast
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.regions.outputs.matrix }}
+    steps:
+      - id: regions
+        env:
+          REGION_SET: ${{ inputs.region_set }}
+        run: |
+          if [ "$REGION_SET" = "southeast" ]; then
+            matrix='{"include":[{"region":"alabama","state":"AL"},{"region":"arkansas","state":"AR"},{"region":"florida","state":"FL"},{"region":"georgia","state":"GA"},{"region":"kentucky","state":"KY"},{"region":"louisiana","state":"LA"},{"region":"mississippi","state":"MS"},{"region":"north-carolina","state":"NC"},{"region":"south-carolina","state":"SC"},{"region":"tennessee","state":"TN"},{"region":"virginia","state":"VA"},{"region":"west-virginia","state":"WV"}]}'
+          else
+            matrix='{"include":[{"region":"alabama","state":"AL"},{"region":"arkansas","state":"AR"},{"region":"georgia","state":"GA"},{"region":"kentucky","state":"KY"},{"region":"mississippi","state":"MS"},{"region":"missouri","state":"MO"},{"region":"north-carolina","state":"NC"},{"region":"virginia","state":"VA"}]}'
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python scripts/migrate.py
+
+  import:
+    needs: [prepare, migrate]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+    concurrency:
+      group: geofabrik-${{ matrix.state }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Import ${{ matrix.state }}
+        run: >-
+          python scripts/import_geofabrik.py
+          "${{ matrix.region }}"
+          --state "${{ matrix.state }}"

@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import osmium
 import psycopg
+from psycopg.types.json import Jsonb
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -167,6 +168,7 @@ class TrailRelationHandler(osmium.SimpleHandler):
     def __init__(self) -> None:
         super().__init__()
         self.way_relations: dict[int, list[dict[str, str]]] = {}
+        self.relations: dict[str, dict[str, Any]] = {}
         self.relation_count = 0
 
     def relation(self, relation: Any) -> None:
@@ -181,10 +183,19 @@ class TrailRelationHandler(osmium.SimpleHandler):
             "ref": tags.get("ref", ""),
             "network": tags.get("network", ""),
             "operator": tags.get("operator", ""),
+            "difficulty": tags.get("sac_scale") or tags.get("mtb:scale", ""),
+            "surface": tags.get("surface", ""),
         }
+        way_ids = []
         for member in relation.members:
             if member.type == "w":
                 self.way_relations.setdefault(member.ref, []).append(metadata)
+                way_ids.append(str(member.ref))
+        self.relations[metadata["id"]] = {
+            **metadata,
+            "way_ids": way_ids,
+            "tags": tags,
+        }
         self.relation_count += 1
 
 
@@ -244,6 +255,10 @@ class TrailWayHandler(osmium.SimpleHandler):
             ),
             "status": tags.get("access") or "unknown",
             "osm_route_relations": route_relations,
+            "is_route_segment": bool(route_relations),
+            "route_relation_ids": [
+                relation["id"] for relation in route_relations
+            ],
         }
         feature = {
             "type": "Feature",
@@ -267,6 +282,133 @@ class TrailWayHandler(osmium.SimpleHandler):
         if self.accepted and self.accepted % 1000 == 0:
             self.conn.commit()
             print(f"Imported {self.accepted} OSM trail-like ways")
+
+
+def consolidate_route_relations(
+    conn: psycopg.Connection,
+    *,
+    source: str,
+    source_url: str,
+    relations: dict[str, dict[str, Any]],
+) -> int:
+    sql = """
+        WITH member_geometries AS (
+            SELECT geometry
+            FROM trails
+            WHERE source = %(source)s
+              AND source_id = ANY(%(way_ids)s)
+        ),
+        merged AS (
+            SELECT ST_Multi(
+                ST_CollectionExtract(
+                    ST_LineMerge(
+                        ST_UnaryUnion(ST_Collect(geometry))
+                    ),
+                    2
+                )
+            ) AS geometry
+            FROM member_geometries
+        )
+        INSERT INTO trails (
+            name,
+            geometry,
+            length_meters,
+            trail_type,
+            difficulty,
+            surface,
+            allowed_uses,
+            managing_agency,
+            status,
+            is_route_segment,
+            route_relation_ids,
+            source,
+            source_id,
+            source_url,
+            raw_properties
+        )
+        SELECT
+            %(name)s,
+            geometry,
+            ST_Length(geography(geometry)),
+            %(trail_type)s,
+            %(difficulty)s,
+            %(surface)s,
+            %(allowed_uses)s,
+            %(managing_agency)s,
+            'unknown',
+            false,
+            %(route_relation_ids)s,
+            %(source)s,
+            %(source_id)s,
+            %(source_url)s,
+            %(raw_properties)s
+        FROM merged
+        WHERE geometry IS NOT NULL
+          AND NOT ST_IsEmpty(geometry)
+        ON CONFLICT (source, source_id)
+        WHERE source_id IS NOT NULL
+        DO UPDATE SET
+            name = EXCLUDED.name,
+            geometry = EXCLUDED.geometry,
+            length_meters = EXCLUDED.length_meters,
+            trail_type = EXCLUDED.trail_type,
+            difficulty = EXCLUDED.difficulty,
+            surface = EXCLUDED.surface,
+            allowed_uses = EXCLUDED.allowed_uses,
+            managing_agency = EXCLUDED.managing_agency,
+            is_route_segment = false,
+            route_relation_ids = EXCLUDED.route_relation_ids,
+            source_url = EXCLUDED.source_url,
+            raw_properties = EXCLUDED.raw_properties,
+            updated_at = now()
+        RETURNING id
+    """
+    consolidated = 0
+    for relation_id, relation in relations.items():
+        way_ids = relation["way_ids"]
+        if not way_ids:
+            continue
+
+        route = relation["route"]
+        allowed = ["biking"] if route == "mtb" else ["hiking"]
+        trail_kind = "mountain_bike_route" if route == "mtb" else "hiking_route"
+        name = (
+            relation.get("name")
+            or relation.get("ref")
+            or f"OSM {route} route {relation_id}"
+        )
+        row = conn.execute(
+            sql,
+            {
+                "source": source,
+                "way_ids": way_ids,
+                "name": name,
+                "trail_type": trail_kind,
+                "difficulty": relation.get("difficulty") or None,
+                "surface": relation.get("surface") or None,
+                "allowed_uses": allowed,
+                "managing_agency": relation.get("operator") or None,
+                "route_relation_ids": [relation_id],
+                "source_id": f"relation:{relation_id}",
+                "source_url": source_url,
+                "raw_properties": Jsonb(
+                    {
+                        "osm_relation_id": relation_id,
+                        "osm_relation": relation["tags"],
+                        "member_way_ids": way_ids,
+                        "member_way_count": len(way_ids),
+                    }
+                ),
+            },
+        ).fetchone()
+        if row:
+            consolidated += 1
+
+        if consolidated and consolidated % 100 == 0:
+            conn.commit()
+            print(f"Consolidated {consolidated} OSM route relations")
+
+    return consolidated
 
 
 def import_geofabrik(
@@ -333,10 +475,17 @@ def import_geofabrik(
                     locations=True,
                     idx=f"sparse_file_array,{index_path}",
                 )
+                consolidated = consolidate_route_relations(
+                    conn,
+                    source=source,
+                    source_url=source_url,
+                    relations=relation_handler.relations,
+                )
+                print(f"Consolidated {consolidated} OSM route relations")
                 _finish_ingest_run(
                     conn,
                     run_id=run_id,
-                    accepted_count=handler.accepted,
+                    accepted_count=handler.accepted + consolidated,
                     status="succeeded",
                 )
                 mark_cache_fresh(
@@ -345,7 +494,7 @@ def import_geofabrik(
                     source=source,
                     state=state,
                     bbox=None,
-                    feature_count=handler.accepted,
+                    feature_count=handler.accepted + consolidated,
                     ttl_days=30,
                 )
                 conn.commit()

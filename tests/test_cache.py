@@ -75,4 +75,5 @@ def test_relation_handler_collects_member_ways():
 
     assert handler.relation_count == 1
     assert handler.way_relations[456][0]["name"] == "Long Trail"
+    assert handler.relations["123"]["way_ids"] == ["456"]
     assert 789 not in handler.way_relations

@@ -14,6 +14,8 @@ class TrailProperties(BaseModel):
     allowed_uses: list[str] = Field(default_factory=list)
     managing_agency: str | None = None
     status: str = "unknown"
+    is_route_segment: bool = False
+    route_relation_ids: list[str] = Field(default_factory=list)
     source: str
     source_id: str | None = None
     source_url: str | None = None

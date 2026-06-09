@@ -33,6 +33,8 @@ def _feature_from_row(row: dict[str, Any]) -> TrailFeature:
             "allowed_uses": row["allowed_uses"] or [],
             "managing_agency": row["managing_agency"],
             "status": row["status"],
+            "is_route_segment": row["is_route_segment"],
+            "route_relation_ids": row["route_relation_ids"] or [],
             "source": row["source"],
             "source_id": row["source_id"],
             "source_url": row["source_url"],
@@ -58,6 +60,9 @@ def list_trails(
     use: str | None = Query(default=None, description="Allowed use, such as hiking."),
     trail_type: str | None = Query(default=None),
     include_sidewalks: bool = Query(default=False),
+    include_segments: bool = Query(default=False),
+    min_length_km: float | None = Query(default=None, ge=0),
+    max_length_km: float | None = Query(default=None, gt=0),
     difficulty: str | None = Query(default=None),
     surface: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
@@ -75,6 +80,7 @@ def list_trails(
 
     params: dict[str, Any] = {"limit": limit}
     conditions: list[str] = []
+    _validate_length_range(min_length_km, max_length_km)
 
     if bbox:
         parts = [float(part.strip()) for part in bbox.split(",")]
@@ -136,6 +142,17 @@ def list_trails(
             """
         )
 
+    if not include_segments:
+        conditions.append("NOT is_route_segment")
+
+    if min_length_km is not None:
+        params["min_length_m"] = min_length_km * 1000
+        conditions.append("length_meters >= %(min_length_m)s")
+
+    if max_length_km is not None:
+        params["max_length_m"] = max_length_km * 1000
+        conditions.append("length_meters <= %(max_length_m)s")
+
     if difficulty:
         params["difficulty"] = difficulty
         conditions.append("difficulty = %(difficulty)s")
@@ -174,6 +191,9 @@ def trails_geojson(
     use: str | None = None,
     trail_type: str | None = None,
     include_sidewalks: bool = False,
+    include_segments: bool = False,
+    min_length_km: float | None = Query(default=None, ge=0),
+    max_length_km: float | None = Query(default=None, gt=0),
     difficulty: str | None = None,
     surface: str | None = None,
     limit: int = Query(default=500, ge=1, le=2000),
@@ -189,6 +209,9 @@ def trails_geojson(
         use=use,
         trail_type=trail_type,
         include_sidewalks=include_sidewalks,
+        include_segments=include_segments,
+        min_length_km=min_length_km,
+        max_length_km=max_length_km,
         difficulty=difficulty,
         surface=surface,
         limit=limit,
@@ -332,9 +355,13 @@ def nearby_trails(
     state: str | None = Query(default=None, min_length=2),
     radius_km: float = Query(default=10, gt=0, le=100),
     include_sidewalks: bool = Query(default=False),
+    include_segments: bool = Query(default=False),
+    min_length_km: float | None = Query(default=None, ge=0),
+    max_length_km: float | None = Query(default=None, gt=0),
     limit: int = Query(default=100, ge=1, le=500),
     conn: Connection = Depends(get_connection),
 ) -> FeatureCollection:
+    _validate_length_range(min_length_km, max_length_km)
     lat, lng = _resolve_nearby_origin(
         conn,
         lat=lat,
@@ -363,6 +390,15 @@ def nearby_trails(
                 AND COALESCE(raw_properties->>'footway', '') <> 'sidewalk'
             )
         )
+        AND (%(include_segments)s OR NOT is_route_segment)
+        AND (
+            %(min_length_m)s IS NULL
+            OR length_meters >= %(min_length_m)s
+        )
+        AND (
+            %(max_length_m)s IS NULL
+            OR length_meters <= %(max_length_m)s
+        )
         ORDER BY ST_Distance(
             geography(geometry),
             geography(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326))
@@ -374,6 +410,13 @@ def nearby_trails(
         "lng": lng,
         "radius_m": radius_km * 1000,
         "include_sidewalks": include_sidewalks,
+        "include_segments": include_segments,
+        "min_length_m": (
+            min_length_km * 1000 if min_length_km is not None else None
+        ),
+        "max_length_m": (
+            max_length_km * 1000 if max_length_km is not None else None
+        ),
         "limit": limit,
     }
 
@@ -382,6 +425,21 @@ def nearby_trails(
         features = [_feature_from_row(row) for row in cur.fetchall()]
 
     return FeatureCollection(features=features)
+
+
+def _validate_length_range(
+    min_length_km: float | None,
+    max_length_km: float | None,
+) -> None:
+    if (
+        min_length_km is not None
+        and max_length_km is not None
+        and min_length_km > max_length_km
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="min_length_km cannot exceed max_length_km.",
+        )
 
 
 def _resolve_nearby_origin(

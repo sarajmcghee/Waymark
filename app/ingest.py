@@ -168,6 +168,8 @@ def _insert_feature(
             allowed_uses,
             managing_agency,
             status,
+            is_route_segment,
+            route_relation_ids,
             source,
             source_id,
             source_url,
@@ -176,13 +178,24 @@ def _insert_feature(
         VALUES (
             %(name)s,
             ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(%(geometry)s), 4326)),
-            %(length_meters)s,
+            COALESCE(
+                %(length_meters)s,
+                ST_Length(
+                    geography(
+                        ST_Multi(
+                            ST_SetSRID(ST_GeomFromGeoJSON(%(geometry)s), 4326)
+                        )
+                    )
+                )
+            ),
             %(trail_type)s,
             %(difficulty)s,
             %(surface)s,
             %(allowed_uses)s,
             %(managing_agency)s,
             %(status)s,
+            %(is_route_segment)s,
+            %(route_relation_ids)s,
             %(source)s,
             NULLIF(%(source_id)s, ''),
             %(source_url)s,
@@ -200,6 +213,8 @@ def _insert_feature(
             allowed_uses = EXCLUDED.allowed_uses,
             managing_agency = EXCLUDED.managing_agency,
             status = EXCLUDED.status,
+            is_route_segment = EXCLUDED.is_route_segment,
+            route_relation_ids = EXCLUDED.route_relation_ids,
             source_url = EXCLUDED.source_url,
             raw_properties = EXCLUDED.raw_properties,
             updated_at = now()
@@ -226,6 +241,11 @@ def _insert_feature(
             ),
             "status": _pick(properties, ["status", "access", "trlstatus", "opentopublic"])
             or "unknown",
+            "is_route_segment": bool(properties.get("is_route_segment", False)),
+            "route_relation_ids": [
+                str(value)
+                for value in properties.get("route_relation_ids", [])
+            ],
             "source": source,
             "source_id": source_id,
             "source_url": source_url,

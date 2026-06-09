@@ -2,7 +2,7 @@ from zipfile import ZipFile
 
 from fastapi import HTTPException
 
-from app.trails import _resolve_nearby_origin
+from app.trails import _resolve_nearby_origin, _validate_length_range
 from scripts.import_cities import place_rows
 
 
@@ -54,3 +54,13 @@ def test_place_rows_reads_census_pipe_delimited_zip(tmp_path):
             "INTPTLONG": "-86.7850000",
         }
     ]
+
+
+def test_length_range_rejects_inverted_values():
+    try:
+        _validate_length_range(10, 5)
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "min_length_km cannot exceed max_length_km."
+    else:
+        raise AssertionError("Expected inverted length range to fail.")
