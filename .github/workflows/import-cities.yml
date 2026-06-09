@@ -1,0 +1,37 @@
+name: Import Census cities
+
+on:
+  workflow_dispatch:
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+
+    steps:
+      - name: Check out Waymark
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate database secret
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "Add RENDER_DATABASE_URL in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Apply migrations
+        run: python scripts/migrate.py
+
+      - name: Import Census cities
+        run: python scripts/import_cities.py

@@ -55,8 +55,10 @@ GET /health
 GET /api/trails
 GET /api/trails/{trail_id}
 GET /api/trails/nearby?lat=35.61&lng=-83.49&radius_km=10
+GET /api/trails/nearby?city=Nashville&state=TN&radius_km=25
 GET /api/trails.geojson
 GET /api/states
+GET /api/cities?query=Nash&state=TN
 GET /map
 GET /admin
 POST /api/ingest/geojson
@@ -95,6 +97,17 @@ GET /api/trails?surface=Native
 GET /api/trails.geojson?bbox=-84,35,-83,36&limit=500
 GET /api/trails.geojson?state=TN&limit=500
 ```
+
+Nearby searches accept coordinates or a Census place name:
+
+```http
+GET /api/trails/nearby?lat=36.1627&lng=-86.7816&radius_km=25&limit=100
+GET /api/trails/nearby?city=Nashville&state=TN&radius_km=25&limit=100
+GET /api/cities?query=Nash&state=TN
+```
+
+Load Census place centroids by running the **Import Census cities** GitHub
+Actions workflow. It uses the existing `RENDER_DATABASE_URL` repository secret.
 
 Waymark can read state-sized OSM caches imported from Geofabrik:
 

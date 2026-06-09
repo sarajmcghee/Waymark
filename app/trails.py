@@ -14,7 +14,7 @@ from app.cache import (
     source_for_request,
 )
 from app.db import get_connection
-from app.models import FeatureCollection, StateBoundary, TrailFeature
+from app.models import CityPlace, FeatureCollection, StateBoundary, TrailFeature
 from scripts.import_overpass import import_overpass_request
 
 router = APIRouter(prefix="/api", tags=["trails"])
@@ -307,12 +307,21 @@ def list_states(conn: Connection = Depends(get_connection)) -> list[StateBoundar
 
 @router.get("/trails/nearby", response_model=FeatureCollection)
 def nearby_trails(
-    lat: float = Query(..., ge=-90, le=90),
-    lng: float = Query(..., ge=-180, le=180),
+    lat: float | None = Query(default=None, ge=-90, le=90),
+    lng: float | None = Query(default=None, ge=-180, le=180),
+    city: str | None = Query(default=None, min_length=1),
+    state: str | None = Query(default=None, min_length=2),
     radius_km: float = Query(default=10, gt=0, le=100),
     limit: int = Query(default=100, ge=1, le=500),
     conn: Connection = Depends(get_connection),
 ) -> FeatureCollection:
+    lat, lng = _resolve_nearby_origin(
+        conn,
+        lat=lat,
+        lng=lng,
+        city=city,
+        state=state,
+    )
     sql = """
         SELECT *, ST_AsGeoJSON(geometry)::json AS geometry
         FROM trails
@@ -339,6 +348,105 @@ def nearby_trails(
         features = [_feature_from_row(row) for row in cur.fetchall()]
 
     return FeatureCollection(features=features)
+
+
+def _resolve_nearby_origin(
+    conn: Connection,
+    *,
+    lat: float | None,
+    lng: float | None,
+    city: str | None,
+    state: str | None,
+) -> tuple[float, float]:
+    has_coordinates = lat is not None or lng is not None
+    has_city = city is not None or state is not None
+
+    if has_coordinates and has_city:
+        raise HTTPException(
+            status_code=400,
+            detail="Use either lat/lng or city/state, not both.",
+        )
+
+    if has_coordinates:
+        if lat is None or lng is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Both lat and lng are required.",
+            )
+        return lat, lng
+
+    if not city or not state:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either lat/lng or city/state.",
+        )
+
+    sql = """
+        SELECT
+            ST_Y(geometry) AS lat,
+            ST_X(geometry) AS lng
+        FROM cities
+        WHERE (
+            lower(name) = lower(%(city)s)
+            OR name ILIKE %(city_prefix)s
+        )
+          AND state = upper(%(state)s)
+        ORDER BY
+            CASE WHEN lower(name) = lower(%(city)s) THEN 0 ELSE 1 END,
+            length(name),
+            name
+        LIMIT 1
+    """
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            sql,
+            {
+                "city": city.strip(),
+                "city_prefix": f"{city.strip()}%",
+                "state": state.strip(),
+            },
+        )
+        place = cur.fetchone()
+
+    if not place:
+        raise HTTPException(
+            status_code=404,
+            detail=f"City not found: {city}, {state.upper()}.",
+        )
+
+    return place["lat"], place["lng"]
+
+
+@router.get("/cities", response_model=list[CityPlace])
+def list_cities(
+    query: str = Query(..., min_length=2),
+    state: str | None = Query(default=None, min_length=2),
+    limit: int = Query(default=10, ge=1, le=50),
+    conn: Connection = Depends(get_connection),
+) -> list[CityPlace]:
+    conditions = ["name ILIKE %(query)s"]
+    params: dict[str, Any] = {
+        "query": f"{query.strip()}%",
+        "limit": limit,
+    }
+    if state:
+        conditions.append("state = upper(%(state)s)")
+        params["state"] = state.strip()
+
+    sql = f"""
+        SELECT
+            name,
+            state,
+            ST_Y(geometry) AS lat,
+            ST_X(geometry) AS lng
+        FROM cities
+        WHERE {" AND ".join(conditions)}
+        ORDER BY name, state
+        LIMIT %(limit)s
+    """
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params)
+        return [CityPlace(**row) for row in cur.fetchall()]
 
 
 @router.get("/trails/{trail_id}", response_model=TrailFeature)

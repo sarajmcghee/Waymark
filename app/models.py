@@ -64,3 +64,10 @@ class StateBoundary(BaseModel):
     abbreviation: str
     name: str
     fips: str
+
+
+class CityPlace(BaseModel):
+    name: str
+    state: str
+    lat: float
+    lng: float
