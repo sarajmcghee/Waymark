@@ -69,6 +69,8 @@ GET /api/admin/source-presets
 ```
 
 `/map` is a lightweight local viewer for visually checking imported trail data.
+It accepts city/radius URL parameters, for example
+`/map?city=Chattanooga&state=TN&radius_km=30&limit=100`.
 `/admin` is a local control panel for viewing counts, import history, and running source preset imports.
 
 ## Firebase Auth

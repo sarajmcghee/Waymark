@@ -61,13 +61,19 @@
       }
 
       .brand {
-        min-width: 220px;
+        width: min(680px, calc(100vw - 260px));
         padding: 12px 14px;
       }
 
       .controls {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+        grid-template-columns:
+          minmax(130px, 1.3fr)
+          minmax(100px, 1fr)
+          minmax(70px, 0.65fr)
+          minmax(82px, 0.65fr)
+          minmax(70px, 0.55fr)
+          auto;
         gap: 8px;
         margin-top: 10px;
       }
@@ -192,6 +198,10 @@
           grid-template-columns: 1fr 1fr;
         }
 
+        .controls select {
+          grid-column: span 2;
+        }
+
         .controls button {
           grid-column: span 2;
         }
@@ -204,13 +214,20 @@
       <section class="brand" aria-label="Map title">
         <h1>Waymark</h1>
         <p id="map-subtitle">Trail data</p>
-        <form id="filter-form" class="controls">
+        <form id="filter-form" class="controls" autocomplete="off">
           <select id="source-input" aria-label="Source">
             <option value="">All sources</option>
             <option value="nps-public-trails-grsm">NPS Smokies</option>
             <option value="osm-geofabrik-tennessee">OSM Tennessee</option>
           </select>
+          <input id="city-input" aria-label="City" placeholder="City" />
           <input id="state-input" aria-label="State" placeholder="State" />
+          <input
+            id="radius-input"
+            aria-label="Radius in kilometers"
+            inputmode="decimal"
+            placeholder="Radius km"
+          />
           <input id="limit-input" aria-label="Limit" inputmode="numeric" placeholder="Limit" />
           <button type="submit">Load</button>
         </form>
@@ -223,6 +240,16 @@
           </button>
           <button type="button" data-source="" data-state="TN" data-limit="500">
             All TN
+          </button>
+          <button
+            type="button"
+            data-source=""
+            data-city="Chattanooga"
+            data-state="TN"
+            data-radius="30"
+            data-limit="100"
+          >
+            Chattanooga 30 km
           </button>
         </div>
       </section>
@@ -268,14 +295,18 @@
 
       const params = new URLSearchParams(window.location.search);
       const sourceInput = document.getElementById("source-input");
+      const cityInput = document.getElementById("city-input");
       const stateInput = document.getElementById("state-input");
+      const radiusInput = document.getElementById("radius-input");
       const limitInput = document.getElementById("limit-input");
       const subtitle = document.getElementById("map-subtitle");
       const trailCount = document.getElementById("trail-count");
       const sourceLabel = document.getElementById("source-label");
 
       sourceInput.value = params.get("source") || "";
+      cityInput.value = params.get("city") || "";
       stateInput.value = params.get("state") || "";
+      radiusInput.value = params.get("radius_km") || "30";
       limitInput.value = params.get("limit") || "500";
 
       function clean(value) {
@@ -305,8 +336,18 @@
       function queryUrl() {
         const query = new URLSearchParams();
         const source = sourceInput.value.trim();
+        const city = cityInput.value.trim();
         const state = stateInput.value.trim();
+        const radius = radiusInput.value.trim() || "30";
         const limit = limitInput.value.trim() || "500";
+
+        if (city) {
+          query.set("city", city);
+          query.set("state", state);
+          query.set("radius_km", radius);
+          query.set("limit", limit);
+          return `/api/trails/nearby?${query.toString()}`;
+        }
 
         if (source) query.set("source", source);
         if (state) query.set("state", state);
@@ -316,32 +357,53 @@
       }
 
       function updateUrl() {
-        window.history.replaceState(null, "", `/map?${queryUrl().split("?")[1]}`);
+        const query = new URLSearchParams();
+        const source = sourceInput.value.trim();
+        const city = cityInput.value.trim();
+        const state = stateInput.value.trim();
+        const radius = radiusInput.value.trim();
+        const limit = limitInput.value.trim();
+
+        if (source && !city) query.set("source", source);
+        if (city) query.set("city", city);
+        if (state) query.set("state", state);
+        if (city && radius) query.set("radius_km", radius);
+        if (limit) query.set("limit", limit);
+        window.history.replaceState(null, "", `/map?${query.toString()}`);
       }
 
       function updateLabels(collection) {
         const source = sourceInput.value.trim();
+        const city = cityInput.value.trim();
         const state = stateInput.value.trim();
+        const radius = radiusInput.value.trim();
         trailCount.textContent = collection.features.length;
-        sourceLabel.textContent = source
+        sourceLabel.textContent = city
+          ? "Nearby"
+          : source
           ? source
               .replace("nps-public-trails-", "nps-")
               .replace("osm-overpass-", "osm-")
               .replace("osm-geofabrik-", "osm-")
           : "All";
         subtitle.textContent = [
-          source || "All trail sources",
-          state ? `state ${state}` : "",
+          city ? `${city}, ${state}` : source || "All trail sources",
+          city ? `${radius} km radius` : state ? `state ${state}` : "",
         ]
           .filter(Boolean)
           .join(" · ");
       }
 
       async function loadTrails() {
+        subtitle.textContent = "Loading trails";
+        updateUrl();
         const response = await fetch(queryUrl());
         const collection = await response.json();
+        if (!response.ok) {
+          subtitle.textContent = collection.detail || "Unable to load trails";
+          return;
+        }
         updateLabels(collection);
-        updateUrl();
 
         if (map.getSource("trails")) {
           map.getSource("trails").setData(collection);
@@ -424,11 +486,25 @@
         await loadTrails();
       });
 
+      cityInput.addEventListener("input", () => {
+        if (cityInput.value.trim()) {
+          sourceInput.value = "";
+        }
+      });
+
+      sourceInput.addEventListener("change", () => {
+        if (sourceInput.value) {
+          cityInput.value = "";
+        }
+      });
+
       document.querySelector(".presets").addEventListener("click", async (event) => {
-        const button = event.target.closest("button[data-source]");
+        const button = event.target.closest("button");
         if (!button) return;
         sourceInput.value = button.dataset.source;
+        cityInput.value = button.dataset.city || "";
         stateInput.value = button.dataset.state;
+        radiusInput.value = button.dataset.radius || "30";
         limitInput.value = button.dataset.limit;
         await loadTrails();
       });
