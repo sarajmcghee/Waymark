@@ -95,11 +95,11 @@ def import_cities(*, url: str, file_path: Path | None) -> int:
             download_file(url, zip_path)
 
         count = 0
+        batch: list[dict] = []
         with psycopg.connect(settings.database_url) as conn:
             with conn.cursor() as cur:
                 for row in place_rows(zip_path):
-                    cur.execute(
-                        sql,
+                    batch.append(
                         {
                             "geoid": row["GEOID"],
                             "name": row["NAME"],
@@ -109,13 +109,18 @@ def import_cities(*, url: str, file_path: Path | None) -> int:
                             "source": "us-census-gazetteer-places-2025",
                             "source_url": url,
                             "raw_properties": Jsonb(row),
-                        },
+                        }
                     )
                     count += 1
 
-                    if count % 1000 == 0:
+                    if len(batch) >= 1000:
+                        cur.executemany(sql, batch)
                         conn.commit()
                         print(f"Imported {count} Census places")
+                        batch.clear()
+
+                if batch:
+                    cur.executemany(sql, batch)
             conn.commit()
 
     return count
