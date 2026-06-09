@@ -11,6 +11,12 @@ import psycopg
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from app.cache import (
+    GEOFABRIK_STATE_SLUGS,
+    mark_cache_failed,
+    mark_cache_fetching,
+    mark_cache_fresh,
+)
 from app.config import get_settings
 from app.ingest import _create_ingest_run, _finish_ingest_run, _insert_feature
 
@@ -36,6 +42,17 @@ TRAIL_ROUTES = {
 
 def region_url(region: str) -> str:
     return f"{GEOFABRIK_US_BASE_URL}/{region}-latest.osm.pbf"
+
+
+def state_for_region(region: str) -> str | None:
+    return next(
+        (
+            abbreviation
+            for abbreviation, slug in GEOFABRIK_STATE_SLUGS.items()
+            if slug == region
+        ),
+        None,
+    )
 
 
 def download_extract(url: str, destination: Path) -> None:
@@ -150,16 +167,19 @@ class TrailWayHandler(osmium.SimpleHandler):
 def import_geofabrik(
     *,
     region: str,
+    state: str | None,
     url: str | None,
     limit: int | None,
     keep_file: Path | None,
 ) -> int:
     source_url = url or region_url(region)
     source = f"osm-geofabrik-{region}"
+    state = state.upper() if state else state_for_region(region)
     settings = get_settings()
 
     with tempfile.TemporaryDirectory() as temp_dir_name:
         pbf_path = keep_file or Path(temp_dir_name) / f"{region}.osm.pbf"
+        index_path = Path(temp_dir_name) / f"{region}.locations"
         if not pbf_path.exists():
             print(f"Downloading {source_url}")
             download_extract(source_url, pbf_path)
@@ -173,16 +193,36 @@ def import_geofabrik(
                 source_filter="trail-like OSM ways",
                 requested_count=limit,
             )
+            mark_cache_fetching(
+                conn,
+                provider="geofabrik",
+                source=source,
+                state=state,
+                bbox=None,
+            )
             conn.commit()
 
             handler = TrailWayHandler(conn, source=source, source_url=source_url, limit=limit)
             try:
-                handler.apply_file(str(pbf_path), locations=True)
+                handler.apply_file(
+                    str(pbf_path),
+                    locations=True,
+                    idx=f"sparse_file_array,{index_path}",
+                )
                 _finish_ingest_run(
                     conn,
                     run_id=run_id,
                     accepted_count=handler.accepted,
                     status="succeeded",
+                )
+                mark_cache_fresh(
+                    conn,
+                    provider="geofabrik",
+                    source=source,
+                    state=state,
+                    bbox=None,
+                    feature_count=handler.accepted,
+                    ttl_days=30,
                 )
                 conn.commit()
             except Exception as exc:
@@ -191,6 +231,14 @@ def import_geofabrik(
                     run_id=run_id,
                     accepted_count=handler.accepted,
                     status="failed",
+                    error=str(exc),
+                )
+                mark_cache_failed(
+                    conn,
+                    provider="geofabrik",
+                    source=source,
+                    state=state,
+                    bbox=None,
                     error=str(exc),
                 )
                 conn.commit()
@@ -202,6 +250,10 @@ def import_geofabrik(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import trail-like OSM ways from Geofabrik.")
     parser.add_argument("region", help="Geofabrik region slug, such as tennessee.")
+    parser.add_argument(
+        "--state",
+        help="Optional state abbreviation. It is inferred for standard U.S. state slugs.",
+    )
     parser.add_argument("--url", help="Override Geofabrik .osm.pbf URL.")
     parser.add_argument("--limit", type=int, help="Optional max number of trail-like ways.")
     parser.add_argument(
@@ -213,6 +265,7 @@ def main() -> None:
 
     count = import_geofabrik(
         region=args.region,
+        state=args.state,
         url=args.url,
         limit=args.limit,
         keep_file=args.file,

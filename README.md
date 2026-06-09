@@ -96,14 +96,15 @@ GET /api/trails.geojson?bbox=-84,35,-83,36&limit=500
 GET /api/trails.geojson?state=TN&limit=500
 ```
 
-Waymark can lazily fetch and cache OSM trails on demand:
+Waymark can read state-sized OSM caches imported from Geofabrik:
 
 ```http
-GET /api/trails.geojson?provider=osm&state=TN&fetch_if_missing=true&limit=500
-GET /api/trails.geojson?provider=osm&bbox=-84.1,35.2,-83.1,36.0&fetch_if_missing=true&limit=500
+GET /api/trails.geojson?provider=geofabrik&state=TN&limit=500
 ```
 
-On-demand fetches are cached in `trail_cache_entries` for later requests.
+Geofabrik imports are recorded in `trail_cache_entries`. Large `.osm.pbf`
+downloads and parsing run as batch jobs instead of inside API requests, avoiding
+Overpass rate limits and web-request timeouts.
 
 Ingest runs are recorded in `ingest_runs` so admin tools can show source history, accepted counts, status, and errors.
 
@@ -185,13 +186,13 @@ Waymark can also import trail-like OpenStreetMap ways from Geofabrik `.osm.pbf` 
 Test a small import:
 
 ```bash
-python scripts/import_geofabrik.py tennessee --limit 100
+python scripts/import_geofabrik.py tennessee --state TN --limit 100
 ```
 
 Import a full state extract:
 
 ```bash
-python scripts/import_geofabrik.py tennessee
+python scripts/import_geofabrik.py tennessee --state TN
 ```
 
 The source name will be:
@@ -203,21 +204,22 @@ osm-geofabrik-tennessee
 Then query it with:
 
 ```http
-GET /api/trails.geojson?state=TN&source=osm-geofabrik-tennessee&limit=500
+GET /api/trails.geojson?provider=geofabrik&state=TN&limit=500
 ```
 
 Geofabrik data comes from OpenStreetMap, so it is broader than official NPS data but should be treated as community-maintained data.
 
-On small Render instances, full Geofabrik `.osm.pbf` imports can run out of memory. Use Overpass for smaller OSM pulls:
+The importer uses a disk-backed Osmium node-location index to reduce memory use.
+State extracts can still require significant temporary disk space and processing
+time. Run full imports from a Render shell, background worker, or a larger
+instance.
 
-```bash
-python scripts/import_overpass.py --state TN --limit 500
-```
+Setting `fetch_if_missing=true` checks the Geofabrik cache. If the state has not
+been imported, the API returns `409` with the exact import command rather than
+calling Overpass:
 
-Or by bounding box:
-
-```bash
-python scripts/import_overpass.py --bbox -84.1,35.2,-83.1,36.0 --limit 500
+```http
+GET /api/trails.geojson?provider=geofabrik&state=TN&fetch_if_missing=true&limit=500
 ```
 
 If a worker dies and leaves a run marked `running`, clean it up with:

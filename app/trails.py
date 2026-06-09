@@ -47,7 +47,7 @@ def list_trails(
         description="Optional minLng,minLat,maxLng,maxLat filter.",
     ),
     source: str | None = Query(default=None),
-    provider: str | None = Query(default=None, pattern="^(osm|nps)$"),
+    provider: str | None = Query(default=None, pattern="^(osm|nps|geofabrik)$"),
     fetch_if_missing: bool = Query(default=False),
     state: str | None = Query(
         default=None,
@@ -152,7 +152,7 @@ def list_trails(
 def trails_geojson(
     bbox: str | None = None,
     source: str | None = None,
-    provider: str | None = Query(default=None, pattern="^(osm|nps)$"),
+    provider: str | None = Query(default=None, pattern="^(osm|nps|geofabrik)$"),
     fetch_if_missing: bool = False,
     state: str | None = None,
     status: str | None = None,
@@ -196,6 +196,34 @@ def _ensure_data_if_requested(
     resolved_source = source_for_request(provider, state, bbox)
     if not fetch_if_missing:
         return resolved_source
+
+    if provider == "geofabrik":
+        if not state:
+            raise HTTPException(
+                status_code=400,
+                detail="state is required when provider=geofabrik.",
+            )
+
+        entry = get_cache_entry(
+            conn,
+            provider=provider,
+            source=resolved_source,
+            state=state.upper(),
+            bbox=None,
+        )
+        if is_fresh(entry):
+            return resolved_source
+
+        region = resolved_source.removeprefix("osm-geofabrik-")
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Geofabrik data is not cached for {state}. "
+                f"Run `python scripts/import_geofabrik.py {region} "
+                f"--state {state.upper()}` in a Render shell or background worker, "
+                "then retry the request."
+            ),
+        )
 
     if provider != "osm":
         raise HTTPException(

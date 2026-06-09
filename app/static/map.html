@@ -208,7 +208,7 @@
           <select id="source-input" aria-label="Source">
             <option value="">All sources</option>
             <option value="nps-public-trails-grsm">NPS Smokies</option>
-            <option value="osm-overpass-tn">OSM Tennessee</option>
+            <option value="osm-geofabrik-tennessee">OSM Tennessee</option>
           </select>
           <input id="state-input" aria-label="State" placeholder="State" />
           <input id="limit-input" aria-label="Limit" inputmode="numeric" placeholder="Limit" />
@@ -218,7 +218,7 @@
           <button type="button" data-source="nps-public-trails-grsm" data-state="" data-limit="500">
             NPS Smokies
           </button>
-          <button type="button" data-source="osm-overpass-tn" data-state="TN" data-limit="500">
+          <button type="button" data-source="osm-geofabrik-tennessee" data-state="TN" data-limit="500">
             OSM TN
           </button>
           <button type="button" data-source="" data-state="TN" data-limit="500">
@@ -323,7 +323,12 @@
         const source = sourceInput.value.trim();
         const state = stateInput.value.trim();
         trailCount.textContent = collection.features.length;
-        sourceLabel.textContent = source ? source.replace("nps-public-trails-", "nps-").replace("osm-overpass-", "osm-") : "All";
+        sourceLabel.textContent = source
+          ? source
+              .replace("nps-public-trails-", "nps-")
+              .replace("osm-overpass-", "osm-")
+              .replace("osm-geofabrik-", "osm-")
+          : "All";
         subtitle.textContent = [
           source || "All trail sources",
           state ? `state ${state}` : "",
