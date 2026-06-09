@@ -34,9 +34,6 @@ CREATE INDEX IF NOT EXISTS trails_source_idx
 CREATE INDEX IF NOT EXISTS trails_status_idx
     ON trails (status);
 
-CREATE INDEX IF NOT EXISTS trails_trail_type_idx
-    ON trails (trail_type);
-
 CREATE INDEX IF NOT EXISTS trails_allowed_uses_gix
     ON trails
     USING gin (allowed_uses);
