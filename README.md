@@ -214,6 +214,14 @@ State extracts can still require significant temporary disk space and processing
 time. Run full imports from a Render shell, background worker, or a larger
 instance.
 
+If Render cannot reach Geofabrik directly, download over IPv4 and pass the local
+file to the importer:
+
+```bash
+curl -4 -L https://download.geofabrik.de/north-america/us/tennessee-latest.osm.pbf -o /tmp/tennessee.osm.pbf
+python scripts/import_geofabrik.py tennessee --state TN --file /tmp/tennessee.osm.pbf
+```
+
 Setting `fetch_if_missing=true` checks the Geofabrik cache. If the state has not
 been imported, the API returns `409` with the exact import command rather than
 calling Overpass:

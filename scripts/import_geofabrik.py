@@ -56,11 +56,33 @@ def state_for_region(region: str) -> str | None:
 
 
 def download_extract(url: str, destination: Path) -> None:
-    with httpx.stream("GET", url, follow_redirects=True, timeout=300) as response:
-        response.raise_for_status()
-        with destination.open("wb") as file:
-            for chunk in response.iter_bytes():
-                file.write(chunk)
+    headers = {"User-Agent": "Waymark/0.1 (Geofabrik trail importer)"}
+
+    def stream_to_file(client: httpx.Client) -> None:
+        with client.stream("GET", url) as response:
+            response.raise_for_status()
+            with destination.open("wb") as file:
+                for chunk in response.iter_bytes():
+                    file.write(chunk)
+
+    try:
+        with httpx.Client(
+            headers=headers,
+            follow_redirects=True,
+            timeout=300,
+        ) as client:
+            stream_to_file(client)
+    except httpx.ConnectError:
+        destination.unlink(missing_ok=True)
+        print("Initial connection failed; retrying Geofabrik over IPv4.")
+        transport = httpx.HTTPTransport(local_address="0.0.0.0", retries=2)
+        with httpx.Client(
+            transport=transport,
+            headers=headers,
+            follow_redirects=True,
+            timeout=300,
+        ) as client:
+            stream_to_file(client)
 
 
 def is_trail_like(tags: dict[str, str]) -> bool:
