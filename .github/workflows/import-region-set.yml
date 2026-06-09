@@ -80,6 +80,7 @@ jobs:
           else
             matrix='{"include":[{"region":"alabama","state":"AL"},{"region":"arkansas","state":"AR"},{"region":"georgia","state":"GA"},{"region":"kentucky","state":"KY"},{"region":"mississippi","state":"MS"},{"region":"missouri","state":"MO"},{"region":"north-carolina","state":"NC"},{"region":"virginia","state":"VA"}]}'
           fi
+          matrix="$(printf '%s' "$matrix" | tr -d '\n')"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   migrate:
