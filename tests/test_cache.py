@@ -4,6 +4,7 @@ from app.cache import source_for_request
 from scripts.import_geofabrik import (
     TrailRelationHandler,
     allowed_uses,
+    is_trail_like,
     state_for_region,
     trail_type,
 )
@@ -46,6 +47,13 @@ def test_way_tags_have_clear_trail_types():
         trail_type({"highway": "path", "sac_scale": "mountain_hiking"})
         == "alpine_hiking_trail"
     )
+
+
+def test_standalone_sidewalks_are_not_trails():
+    tags = {"highway": "footway", "footway": "sidewalk"}
+
+    assert is_trail_like(tags) is False
+    assert trail_type(tags) == "sidewalk"
 
 
 def test_relation_handler_collects_member_ways():

@@ -57,6 +57,7 @@ def list_trails(
     status: str | None = Query(default=None),
     use: str | None = Query(default=None, description="Allowed use, such as hiking."),
     trail_type: str | None = Query(default=None),
+    include_sidewalks: bool = Query(default=False),
     difficulty: str | None = Query(default=None),
     surface: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
@@ -127,6 +128,14 @@ def list_trails(
         params["trail_type"] = trail_type
         conditions.append("trail_type = %(trail_type)s")
 
+    if not include_sidewalks:
+        conditions.append(
+            """
+            COALESCE(trail_type, '') <> 'sidewalk'
+            AND COALESCE(raw_properties->>'footway', '') <> 'sidewalk'
+            """
+        )
+
     if difficulty:
         params["difficulty"] = difficulty
         conditions.append("difficulty = %(difficulty)s")
@@ -164,6 +173,7 @@ def trails_geojson(
     status: str | None = None,
     use: str | None = None,
     trail_type: str | None = None,
+    include_sidewalks: bool = False,
     difficulty: str | None = None,
     surface: str | None = None,
     limit: int = Query(default=500, ge=1, le=2000),
@@ -178,6 +188,7 @@ def trails_geojson(
         status=status,
         use=use,
         trail_type=trail_type,
+        include_sidewalks=include_sidewalks,
         difficulty=difficulty,
         surface=surface,
         limit=limit,
@@ -320,6 +331,7 @@ def nearby_trails(
     city: str | None = Query(default=None, min_length=1),
     state: str | None = Query(default=None, min_length=2),
     radius_km: float = Query(default=10, gt=0, le=100),
+    include_sidewalks: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=500),
     conn: Connection = Depends(get_connection),
 ) -> FeatureCollection:
@@ -344,6 +356,13 @@ def nearby_trails(
             geography(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)),
             %(radius_m)s
         )
+        AND (
+            %(include_sidewalks)s
+            OR (
+                COALESCE(trail_type, '') <> 'sidewalk'
+                AND COALESCE(raw_properties->>'footway', '') <> 'sidewalk'
+            )
+        )
         ORDER BY ST_Distance(
             geography(geometry),
             geography(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326))
@@ -354,6 +373,7 @@ def nearby_trails(
         "lat": lat,
         "lng": lng,
         "radius_m": radius_km * 1000,
+        "include_sidewalks": include_sidewalks,
         "limit": limit,
     }
 

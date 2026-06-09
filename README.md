@@ -107,6 +107,13 @@ GET /api/trails/nearby?city=Nashville&state=TN&radius_km=25&limit=100
 GET /api/cities?query=Nash&state=TN
 ```
 
+Standalone OSM sidewalks are excluded from trail responses by default. Clients
+that also need pedestrian infrastructure can opt in:
+
+```http
+GET /api/trails/nearby?city=Nashville&state=TN&radius_km=25&include_sidewalks=true
+```
+
 Load Census place centroids by running the **Import Census cities** GitHub
 Actions workflow. It uses the existing `RENDER_DATABASE_URL` repository secret.
 

@@ -89,6 +89,8 @@ def is_trail_like(tags: dict[str, str]) -> bool:
     highway = tags.get("highway")
     route = tags.get("route")
 
+    if tags.get("footway") == "sidewalk":
+        return False
     if highway in TRAIL_HIGHWAYS:
         return True
     if route in TRAIL_ROUTES:
@@ -145,6 +147,8 @@ def trail_type(
         return "mountain_bike_route"
     if relation_routes.intersection({"foot", "hiking"}):
         return "hiking_route"
+    if tags.get("footway") == "sidewalk":
+        return "sidewalk"
     if tags.get("sac_scale"):
         return "alpine_hiking_trail"
 
