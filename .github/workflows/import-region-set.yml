@@ -11,6 +11,7 @@ on:
         options:
           - tennessee-neighbors
           - southeast
+          - all-states
 
 jobs:
   prepare:
@@ -22,7 +23,59 @@ jobs:
         env:
           REGION_SET: ${{ inputs.region_set }}
         run: |
-          if [ "$REGION_SET" = "southeast" ]; then
+          if [ "$REGION_SET" = "all-states" ]; then
+            matrix='{"include":[
+              {"region":"alabama","state":"AL"},
+              {"region":"alaska","state":"AK"},
+              {"region":"arizona","state":"AZ"},
+              {"region":"arkansas","state":"AR"},
+              {"region":"california","state":"CA"},
+              {"region":"colorado","state":"CO"},
+              {"region":"connecticut","state":"CT"},
+              {"region":"delaware","state":"DE"},
+              {"region":"florida","state":"FL"},
+              {"region":"georgia","state":"GA"},
+              {"region":"hawaii","state":"HI"},
+              {"region":"idaho","state":"ID"},
+              {"region":"illinois","state":"IL"},
+              {"region":"indiana","state":"IN"},
+              {"region":"iowa","state":"IA"},
+              {"region":"kansas","state":"KS"},
+              {"region":"kentucky","state":"KY"},
+              {"region":"louisiana","state":"LA"},
+              {"region":"maine","state":"ME"},
+              {"region":"maryland","state":"MD"},
+              {"region":"massachusetts","state":"MA"},
+              {"region":"michigan","state":"MI"},
+              {"region":"minnesota","state":"MN"},
+              {"region":"mississippi","state":"MS"},
+              {"region":"missouri","state":"MO"},
+              {"region":"montana","state":"MT"},
+              {"region":"nebraska","state":"NE"},
+              {"region":"nevada","state":"NV"},
+              {"region":"new-hampshire","state":"NH"},
+              {"region":"new-jersey","state":"NJ"},
+              {"region":"new-mexico","state":"NM"},
+              {"region":"new-york","state":"NY"},
+              {"region":"north-carolina","state":"NC"},
+              {"region":"north-dakota","state":"ND"},
+              {"region":"ohio","state":"OH"},
+              {"region":"oklahoma","state":"OK"},
+              {"region":"oregon","state":"OR"},
+              {"region":"pennsylvania","state":"PA"},
+              {"region":"rhode-island","state":"RI"},
+              {"region":"south-carolina","state":"SC"},
+              {"region":"south-dakota","state":"SD"},
+              {"region":"texas","state":"TX"},
+              {"region":"utah","state":"UT"},
+              {"region":"vermont","state":"VT"},
+              {"region":"virginia","state":"VA"},
+              {"region":"washington","state":"WA"},
+              {"region":"west-virginia","state":"WV"},
+              {"region":"wisconsin","state":"WI"},
+              {"region":"wyoming","state":"WY"}
+            ]}'
+          elif [ "$REGION_SET" = "southeast" ]; then
             matrix='{"include":[{"region":"alabama","state":"AL"},{"region":"arkansas","state":"AR"},{"region":"florida","state":"FL"},{"region":"georgia","state":"GA"},{"region":"kentucky","state":"KY"},{"region":"louisiana","state":"LA"},{"region":"mississippi","state":"MS"},{"region":"north-carolina","state":"NC"},{"region":"south-carolina","state":"SC"},{"region":"tennessee","state":"TN"},{"region":"virginia","state":"VA"},{"region":"west-virginia","state":"WV"}]}'
           else
             matrix='{"include":[{"region":"alabama","state":"AL"},{"region":"arkansas","state":"AR"},{"region":"georgia","state":"GA"},{"region":"kentucky","state":"KY"},{"region":"mississippi","state":"MS"},{"region":"missouri","state":"MO"},{"region":"north-carolina","state":"NC"},{"region":"virginia","state":"VA"}]}'
@@ -49,7 +102,7 @@ jobs:
       max-parallel: 2
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 360
     env:
       DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
     concurrency:
