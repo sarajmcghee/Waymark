@@ -14,10 +14,59 @@ from app.cache import (
     source_for_request,
 )
 from app.db import get_connection
-from app.models import CityPlace, FeatureCollection, StateBoundary, TrailFeature
+from app.models import (
+    CityPlace,
+    FeatureCollection,
+    StateBoundary,
+    TrailFeature,
+    WanderlyTrail,
+)
 from scripts.import_overpass import import_overpass_request
 
 router = APIRouter(prefix="/api", tags=["trails"])
+
+HIKE_INTENT_SQL = """
+    'hiking' = ANY(allowed_uses)
+    AND COALESCE(trail_type, '') IN (
+        'hiking_route',
+        'alpine_hiking_trail',
+        'footpath',
+        'path',
+        'track',
+        'steps',
+        'trail'
+    )
+    AND COALESCE(raw_properties->>'footway', '') NOT IN (
+        'sidewalk',
+        'crossing'
+    )
+    AND (
+        COALESCE(raw_properties->>'foot', '') <> 'no'
+        OR source_id LIKE 'relation:%%'
+    )
+"""
+
+
+def _is_hike_intent(row: dict[str, Any]) -> bool:
+    raw = row["raw_properties"] or {}
+    return (
+        "hiking" in (row["allowed_uses"] or [])
+        and row["trail_type"]
+        in {
+            "hiking_route",
+            "alpine_hiking_trail",
+            "footpath",
+            "path",
+            "track",
+            "steps",
+            "trail",
+        }
+        and raw.get("footway") not in {"sidewalk", "crossing"}
+        and (
+            raw.get("foot") != "no"
+            or str(row.get("source_id") or "").startswith("relation:")
+        )
+    )
 
 
 def _feature_from_row(row: dict[str, Any]) -> TrailFeature:
@@ -33,6 +82,7 @@ def _feature_from_row(row: dict[str, Any]) -> TrailFeature:
             "allowed_uses": row["allowed_uses"] or [],
             "managing_agency": row["managing_agency"],
             "status": row["status"],
+            "hike_intent": _is_hike_intent(row),
             "is_route_segment": row["is_route_segment"],
             "route_relation_ids": row["route_relation_ids"] or [],
             "source": row["source"],
@@ -60,6 +110,7 @@ def list_trails(
     use: str | None = Query(default=None, description="Allowed use, such as hiking."),
     trail_type: str | None = Query(default=None),
     include_sidewalks: bool = Query(default=False),
+    hike_intent: bool = Query(default=False),
     include_segments: bool = Query(default=False),
     min_length_km: float | None = Query(default=None, ge=0),
     max_length_km: float | None = Query(default=None, gt=0),
@@ -142,6 +193,9 @@ def list_trails(
             """
         )
 
+    if hike_intent:
+        conditions.append(HIKE_INTENT_SQL)
+
     if not include_segments:
         conditions.append("NOT is_route_segment")
 
@@ -191,6 +245,7 @@ def trails_geojson(
     use: str | None = None,
     trail_type: str | None = None,
     include_sidewalks: bool = False,
+    hike_intent: bool = False,
     include_segments: bool = False,
     min_length_km: float | None = Query(default=None, ge=0),
     max_length_km: float | None = Query(default=None, gt=0),
@@ -209,6 +264,7 @@ def trails_geojson(
         use=use,
         trail_type=trail_type,
         include_sidewalks=include_sidewalks,
+        hike_intent=hike_intent,
         include_segments=include_segments,
         min_length_km=min_length_km,
         max_length_km=max_length_km,
@@ -355,6 +411,7 @@ def nearby_trails(
     state: str | None = Query(default=None, min_length=2),
     radius_km: float = Query(default=10, gt=0, le=100),
     include_sidewalks: bool = Query(default=False),
+    hike_intent: bool = Query(default=False),
     include_segments: bool = Query(default=False),
     min_length_km: float | None = Query(default=None, ge=0),
     max_length_km: float | None = Query(default=None, gt=0),
@@ -390,6 +447,29 @@ def nearby_trails(
                 AND COALESCE(raw_properties->>'footway', '') <> 'sidewalk'
             )
         )
+        AND (
+            NOT %(hike_intent)s
+            OR (
+                'hiking' = ANY(allowed_uses)
+                AND COALESCE(trail_type, '') IN (
+                    'hiking_route',
+                    'alpine_hiking_trail',
+                    'footpath',
+                    'path',
+                    'track',
+                    'steps',
+                    'trail'
+                )
+                AND COALESCE(raw_properties->>'footway', '') NOT IN (
+                    'sidewalk',
+                    'crossing'
+                )
+                AND (
+                    COALESCE(raw_properties->>'foot', '') <> 'no'
+                    OR source_id LIKE 'relation:%%'
+                )
+            )
+        )
         AND (%(include_segments)s OR NOT is_route_segment)
         AND (
             %(min_length_m)s IS NULL
@@ -399,10 +479,12 @@ def nearby_trails(
             %(max_length_m)s IS NULL
             OR length_meters <= %(max_length_m)s
         )
-        ORDER BY ST_Distance(
-            geography(geometry),
-            geography(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326))
-        )
+        ORDER BY
+            CASE WHEN name IS NULL OR trim(name) = '' THEN 1 ELSE 0 END,
+            ST_Distance(
+                geography(geometry),
+                geography(ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326))
+            )
         LIMIT %(limit)s
     """
     params = {
@@ -410,6 +492,7 @@ def nearby_trails(
         "lng": lng,
         "radius_m": radius_km * 1000,
         "include_sidewalks": include_sidewalks,
+        "hike_intent": hike_intent,
         "include_segments": include_segments,
         "min_length_m": (
             min_length_km * 1000 if min_length_km is not None else None
@@ -425,6 +508,182 @@ def nearby_trails(
         features = [_feature_from_row(row) for row in cur.fetchall()]
 
     return FeatureCollection(features=features)
+
+
+def _normalized_difficulty(
+    raw_difficulties: list[str],
+    trail_types: list[str],
+) -> str:
+    values = " ".join(raw_difficulties + trail_types).lower()
+    hard_markers = (
+        "alpine",
+        "demanding",
+        "difficult",
+        "expert",
+        "black",
+        "class 4",
+        "class 5",
+    )
+    moderate_markers = (
+        "mountain_hiking",
+        "mountain hiking",
+        "moderate",
+        "intermediate",
+        "class 2",
+        "class 3",
+    )
+
+    if any(marker in values for marker in hard_markers):
+        return "hard"
+    if any(marker in values for marker in moderate_markers):
+        return "moderate"
+    return "easy"
+
+
+def _wanderly_category(distance_miles: float, difficulty: str) -> str:
+    if difficulty == "hard" or distance_miles >= 8:
+        return "major_hike"
+    if difficulty == "moderate" or distance_miles >= 3:
+        return "moderate_hike"
+    return "walk"
+
+
+def _estimated_duration_hours(length_meters: float, difficulty: str) -> float:
+    base_hours = (length_meters / 1000) / 5
+    difficulty_factor = {
+        "easy": 1.0,
+        "moderate": 1.15,
+        "hard": 1.35,
+    }[difficulty]
+    return round(base_hours * difficulty_factor, 2)
+
+
+@router.get(
+    "/wanderly/trails/nearby",
+    response_model=list[WanderlyTrail],
+    response_model_by_alias=True,
+)
+def wanderly_nearby_trails(
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    radius_km: float = Query(default=30, gt=0, le=100),
+    limit: int = Query(default=100, ge=1, le=500),
+    conn: Connection = Depends(get_connection),
+) -> list[WanderlyTrail]:
+    sql = """
+        WITH candidates AS (
+            SELECT
+                id,
+                trim(name) AS name,
+                geometry,
+                difficulty,
+                trail_type
+            FROM trails
+            WHERE name IS NOT NULL
+              AND trim(name) <> ''
+              AND NOT is_route_segment
+              AND """ + HIKE_INTENT_SQL + """
+              AND geometry && ST_Envelope(
+                  ST_Buffer(
+                      geography(
+                          ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)
+                      ),
+                      %(radius_m)s
+                  )::geometry
+              )
+              AND ST_DWithin(
+                  geography(geometry),
+                  geography(
+                      ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)
+                  ),
+                  %(radius_m)s
+              )
+        ),
+        grouped AS (
+            SELECT
+                lower(name) AS name_key,
+                min(id::text) AS id,
+                min(name) AS name,
+                array_remove(array_agg(DISTINCT difficulty), NULL)
+                    AS raw_difficulties,
+                array_remove(array_agg(DISTINCT trail_type), NULL)
+                    AS trail_types,
+                ST_Multi(
+                    ST_CollectionExtract(
+                        ST_LineMerge(
+                            ST_UnaryUnion(ST_Collect(geometry))
+                        ),
+                        2
+                    )
+                ) AS geometry
+            FROM candidates
+            GROUP BY lower(name)
+        ),
+        measured AS (
+            SELECT
+                id,
+                name,
+                raw_difficulties,
+                trail_types,
+                geometry,
+                ST_Length(geography(geometry)) AS length_meters,
+                ST_Y(ST_Centroid(geometry)) AS center_lat,
+                ST_X(ST_Centroid(geometry)) AS center_lng,
+                ST_Distance(
+                    geography(geometry),
+                    geography(
+                        ST_SetSRID(ST_MakePoint(%(lng)s, %(lat)s), 4326)
+                    )
+                ) AS distance_from_origin
+            FROM grouped
+            WHERE geometry IS NOT NULL
+              AND NOT ST_IsEmpty(geometry)
+        )
+        SELECT *
+        FROM measured
+        WHERE length_meters > 0
+        ORDER BY
+            CASE WHEN 'hiking_route' = ANY(trail_types) THEN 0 ELSE 1 END,
+            distance_from_origin,
+            name
+        LIMIT %(limit)s
+    """
+    params = {
+        "lat": lat,
+        "lng": lng,
+        "radius_m": radius_km * 1000,
+        "limit": limit,
+    }
+
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+
+    trails = []
+    for row in rows:
+        length_meters = float(row["length_meters"])
+        distance_miles = round(length_meters / 1609.344, 2)
+        difficulty = _normalized_difficulty(
+            row["raw_difficulties"] or [],
+            row["trail_types"] or [],
+        )
+        trails.append(
+            WanderlyTrail(
+                id=row["id"],
+                name=row["name"],
+                distance_miles=distance_miles,
+                estimated_duration_hours=_estimated_duration_hours(
+                    length_meters,
+                    difficulty,
+                ),
+                difficulty=difficulty,
+                category=_wanderly_category(distance_miles, difficulty),
+                center_lat=float(row["center_lat"]),
+                center_lng=float(row["center_lng"]),
+            )
+        )
+
+    return trails
 
 
 def _validate_length_range(

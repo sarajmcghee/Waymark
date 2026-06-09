@@ -14,6 +14,7 @@ class TrailProperties(BaseModel):
     allowed_uses: list[str] = Field(default_factory=list)
     managing_agency: str | None = None
     status: str = "unknown"
+    hike_intent: bool = False
     is_route_segment: bool = False
     route_relation_ids: list[str] = Field(default_factory=list)
     source: str
@@ -74,3 +75,16 @@ class CityPlace(BaseModel):
     state: str
     lat: float
     lng: float
+
+
+class WanderlyTrail(BaseModel):
+    id: str
+    name: str
+    distance_miles: float = Field(serialization_alias="distanceMiles")
+    estimated_duration_hours: float = Field(
+        serialization_alias="estimatedDurationHours"
+    )
+    difficulty: str
+    category: str
+    center_lat: float = Field(serialization_alias="centerLat")
+    center_lng: float = Field(serialization_alias="centerLng")

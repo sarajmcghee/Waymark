@@ -95,6 +95,7 @@ GET /api/trails?state=North%20Carolina
 GET /api/trails?status=Existing
 GET /api/trails?use=hiking
 GET /api/trails?trail_type=hiking_route
+GET /api/trails?hike_intent=true
 GET /api/trails?include_segments=true
 GET /api/trails?min_length_km=3&max_length_km=15
 GET /api/trails?difficulty=Class%203:%20Developed
@@ -110,6 +111,39 @@ GET /api/trails/nearby?lat=36.1627&lng=-86.7816&radius_km=25&limit=100
 GET /api/trails/nearby?city=Nashville&state=TN&radius_km=25&limit=100
 GET /api/cities?query=Nash&state=TN
 ```
+
+## Wanderly itinerary endpoint
+
+Wanderly can request named, hikeable trails near coordinates:
+
+```http
+GET /api/wanderly/trails/nearby?lat=35.0456&lng=-85.3097&radius_km=30&limit=100
+```
+
+This endpoint dissolves same-named trail geometry into one result, calculates
+distance from the merged geometry, ranks complete OSM hiking routes before
+ordinary paths, and excludes unnamed features, sidewalks, crossings, cycling
+paths, and route member segments. Its response is tailored to itinerary
+generation:
+
+```json
+[
+  {
+    "id": "9aca6b4e-7db9-49df-a86b-2252ca4f25b8",
+    "name": "Example Trail",
+    "distanceMiles": 4.25,
+    "estimatedDurationHours": 1.57,
+    "difficulty": "moderate",
+    "category": "moderate_hike",
+    "centerLat": 35.04,
+    "centerLng": -85.31
+  }
+]
+```
+
+Duration assumes a 5 km/h walking pace, with a 15% adjustment for moderate
+trails and 35% for hard trails. Difficulty is normalized to `easy`, `moderate`,
+or `hard`; category is normalized to `walk`, `moderate_hike`, or `major_hike`.
 
 Standalone OSM sidewalks are excluded from trail responses by default. Clients
 that also need pedestrian infrastructure can opt in:
