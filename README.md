@@ -222,6 +222,11 @@ curl -4 -L https://download.geofabrik.de/north-america/us/tennessee-latest.osm.p
 python scripts/import_geofabrik.py tennessee --state TN --file /tmp/tennessee.osm.pbf
 ```
 
+The recommended hosted import path is the **Import Geofabrik trails** GitHub
+Actions workflow. Add the Render Postgres external connection URL as the
+`RENDER_DATABASE_URL` repository Actions secret, then run the workflow from the
+repository's Actions tab. The default inputs import Tennessee.
+
 Setting `fetch_if_missing=true` checks the Geofabrik cache. If the state has not
 been imported, the API returns `409` with the exact import command rather than
 calling Overpass:

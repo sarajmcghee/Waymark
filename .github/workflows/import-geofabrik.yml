@@ -1,0 +1,65 @@
+name: Import Geofabrik trails
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Geofabrik region slug, such as tennessee"
+        required: true
+        default: "tennessee"
+        type: string
+      state:
+        description: "Two-letter state abbreviation, such as TN"
+        required: true
+        default: "TN"
+        type: string
+      limit:
+        description: "Optional trail limit; leave blank for the full state"
+        required: false
+        type: string
+
+concurrency:
+  group: geofabrik-${{ inputs.state }}
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+
+    steps:
+      - name: Check out Waymark
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate database secret
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "Add RENDER_DATABASE_URL in repository Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Apply migrations
+        run: python scripts/migrate.py
+
+      - name: Import Geofabrik trails
+        env:
+          REGION: ${{ inputs.region }}
+          STATE: ${{ inputs.state }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          args=("$REGION" "--state" "$STATE")
+          if [ -n "$LIMIT" ]; then
+            args+=("--limit" "$LIMIT")
+          fi
+          python scripts/import_geofabrik.py "${args[@]}"
