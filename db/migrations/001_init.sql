@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS trails (
     name text,
     geometry geometry(MultiLineString, 4326) NOT NULL,
     length_meters double precision,
+    trail_type text,
     difficulty text,
     surface text,
     allowed_uses text[] NOT NULL DEFAULT '{}',
@@ -32,6 +33,9 @@ CREATE INDEX IF NOT EXISTS trails_source_idx
 
 CREATE INDEX IF NOT EXISTS trails_status_idx
     ON trails (status);
+
+CREATE INDEX IF NOT EXISTS trails_trail_type_idx
+    ON trails (trail_type);
 
 CREATE INDEX IF NOT EXISTS trails_allowed_uses_gix
     ON trails

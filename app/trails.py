@@ -27,6 +27,7 @@ def _feature_from_row(row: dict[str, Any]) -> TrailFeature:
         properties={
             "name": row["name"],
             "length_meters": row["length_meters"],
+            "trail_type": row["trail_type"],
             "difficulty": row["difficulty"],
             "surface": row["surface"],
             "allowed_uses": row["allowed_uses"] or [],
@@ -55,6 +56,7 @@ def list_trails(
     ),
     status: str | None = Query(default=None),
     use: str | None = Query(default=None, description="Allowed use, such as hiking."),
+    trail_type: str | None = Query(default=None),
     difficulty: str | None = Query(default=None),
     surface: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
@@ -121,6 +123,10 @@ def list_trails(
         params["use"] = use.lower()
         conditions.append("%(use)s = ANY(allowed_uses)")
 
+    if trail_type:
+        params["trail_type"] = trail_type
+        conditions.append("trail_type = %(trail_type)s")
+
     if difficulty:
         params["difficulty"] = difficulty
         conditions.append("difficulty = %(difficulty)s")
@@ -157,6 +163,7 @@ def trails_geojson(
     state: str | None = None,
     status: str | None = None,
     use: str | None = None,
+    trail_type: str | None = None,
     difficulty: str | None = None,
     surface: str | None = None,
     limit: int = Query(default=500, ge=1, le=2000),
@@ -170,6 +177,7 @@ def trails_geojson(
         state=state,
         status=status,
         use=use,
+        trail_type=trail_type,
         difficulty=difficulty,
         surface=surface,
         limit=limit,

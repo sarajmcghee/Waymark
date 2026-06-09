@@ -101,21 +101,87 @@ def is_trail_like(tags: dict[str, str]) -> bool:
     return False
 
 
-def allowed_uses(tags: dict[str, str]) -> list[str]:
+def allowed_uses(
+    tags: dict[str, str],
+    route_relations: list[dict[str, str]] | None = None,
+) -> list[str]:
     uses: list[str] = []
+    relation_routes = {
+        relation["route"]
+        for relation in route_relations or []
+        if relation.get("route")
+    }
 
-    if tags.get("foot") in {"yes", "designated", "permissive"} or tags.get("highway") in {
-        "footway",
-        "path",
-        "steps",
-    }:
+    if (
+        tags.get("foot") in {"yes", "designated", "permissive"}
+        or tags.get("highway") in {"footway", "path", "steps"}
+        or relation_routes.intersection({"foot", "hiking"})
+    ):
         uses.append("hiking")
-    if tags.get("bicycle") in {"yes", "designated", "permissive"}:
+    if (
+        tags.get("bicycle") in {"yes", "designated", "permissive"}
+        or "mtb" in relation_routes
+    ):
         uses.append("biking")
-    if tags.get("horse") in {"yes", "designated", "permissive"} or tags.get("highway") == "bridleway":
+    if (
+        tags.get("horse") in {"yes", "designated", "permissive"}
+        or tags.get("highway") == "bridleway"
+    ):
         uses.append("horse")
 
     return uses or ["unknown"]
+
+
+def trail_type(
+    tags: dict[str, str],
+    route_relations: list[dict[str, str]] | None = None,
+) -> str:
+    relation_routes = {
+        relation["route"]
+        for relation in route_relations or []
+        if relation.get("route")
+    }
+    if "mtb" in relation_routes:
+        return "mountain_bike_route"
+    if relation_routes.intersection({"foot", "hiking"}):
+        return "hiking_route"
+    if tags.get("sac_scale"):
+        return "alpine_hiking_trail"
+
+    return {
+        "bridleway": "equestrian_trail",
+        "cycleway": "cycling_path",
+        "footway": "footpath",
+        "path": "path",
+        "pedestrian": "pedestrian_path",
+        "steps": "steps",
+        "track": "track",
+    }.get(tags.get("highway"), "trail")
+
+
+class TrailRelationHandler(osmium.SimpleHandler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.way_relations: dict[int, list[dict[str, str]]] = {}
+        self.relation_count = 0
+
+    def relation(self, relation: Any) -> None:
+        tags = {tag.k: tag.v for tag in relation.tags}
+        if tags.get("type") != "route" or tags.get("route") not in TRAIL_ROUTES:
+            return
+
+        metadata = {
+            "id": str(relation.id),
+            "route": tags["route"],
+            "name": tags.get("name", ""),
+            "ref": tags.get("ref", ""),
+            "network": tags.get("network", ""),
+            "operator": tags.get("operator", ""),
+        }
+        for member in relation.members:
+            if member.type == "w":
+                self.way_relations.setdefault(member.ref, []).append(metadata)
+        self.relation_count += 1
 
 
 class TrailWayHandler(osmium.SimpleHandler):
@@ -126,12 +192,14 @@ class TrailWayHandler(osmium.SimpleHandler):
         source: str,
         source_url: str,
         limit: int | None,
+        way_relations: dict[int, list[dict[str, str]]] | None = None,
     ) -> None:
         super().__init__()
         self.conn = conn
         self.source = source
         self.source_url = source_url
         self.limit = limit
+        self.way_relations = way_relations or {}
         self.accepted = 0
         self.seen = 0
 
@@ -140,7 +208,8 @@ class TrailWayHandler(osmium.SimpleHandler):
             return
 
         tags = {tag.k: tag.v for tag in way.tags}
-        if not is_trail_like(tags):
+        route_relations = self.way_relations.get(way.id, [])
+        if not is_trail_like(tags) and not route_relations:
             return
 
         coordinates = []
@@ -152,15 +221,25 @@ class TrailWayHandler(osmium.SimpleHandler):
         if len(coordinates) < 2:
             return
 
+        named_relation = next(
+            (relation for relation in route_relations if relation.get("name")),
+            {},
+        )
         properties = {
             **tags,
             "source_id": str(way.id),
-            "name": tags.get("name"),
+            "name": tags.get("name") or named_relation.get("name"),
+            "trail_type": trail_type(tags, route_relations),
             "surface": tags.get("surface"),
             "difficulty": tags.get("sac_scale") or tags.get("mtb:scale"),
-            "allowed_uses": allowed_uses(tags),
-            "managing_agency": tags.get("operator") or tags.get("owner"),
+            "allowed_uses": allowed_uses(tags, route_relations),
+            "managing_agency": (
+                tags.get("operator")
+                or tags.get("owner")
+                or named_relation.get("operator")
+            ),
             "status": tags.get("access") or "unknown",
+            "osm_route_relations": route_relations,
         }
         feature = {
             "type": "Feature",
@@ -212,7 +291,7 @@ def import_geofabrik(
                 source=source,
                 source_url=source_url,
                 source_type="geofabrik-osm-pbf",
-                source_filter="trail-like OSM ways",
+                source_filter="trail-like OSM ways and hiking/foot/MTB route members",
                 requested_count=limit,
             )
             mark_cache_fetching(
@@ -224,8 +303,27 @@ def import_geofabrik(
             )
             conn.commit()
 
-            handler = TrailWayHandler(conn, source=source, source_url=source_url, limit=limit)
+            handler = TrailWayHandler(
+                conn,
+                source=source,
+                source_url=source_url,
+                limit=limit,
+            )
             try:
+                relation_handler = TrailRelationHandler()
+                relation_handler.apply_file(str(pbf_path))
+                print(
+                    "Found "
+                    f"{relation_handler.relation_count} hiking/foot/MTB route relations "
+                    f"covering {len(relation_handler.way_relations)} ways"
+                )
+                handler = TrailWayHandler(
+                    conn,
+                    source=source,
+                    source_url=source_url,
+                    limit=limit,
+                    way_relations=relation_handler.way_relations,
+                )
                 handler.apply_file(
                     str(pbf_path),
                     locations=True,

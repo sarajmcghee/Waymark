@@ -92,6 +92,7 @@ GET /api/trails?state=TN
 GET /api/trails?state=North%20Carolina
 GET /api/trails?status=Existing
 GET /api/trails?use=hiking
+GET /api/trails?trail_type=hiking_route
 GET /api/trails?difficulty=Class%203:%20Developed
 GET /api/trails?surface=Native
 GET /api/trails.geojson?bbox=-84,35,-83,36&limit=500
@@ -221,6 +222,13 @@ GET /api/trails.geojson?provider=geofabrik&state=TN&limit=500
 ```
 
 Geofabrik data comes from OpenStreetMap, so it is broader than official NPS data but should be treated as community-maintained data.
+
+The Geofabrik importer makes two passes through each extract. It first collects
+`route=hiking`, `route=foot`, and `route=mtb` relations, then imports trail-like
+ways plus all member ways from those relations. Route names, references,
+networks, operators, and memberships are retained in `raw_properties`.
+Normalized `trail_type` values include `hiking_route`, `mountain_bike_route`,
+`alpine_hiking_trail`, `footpath`, `path`, `track`, and other path types.
 
 The importer uses a disk-backed Osmium node-location index to reduce memory use.
 State extracts can still require significant temporary disk space and processing

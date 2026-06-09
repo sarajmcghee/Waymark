@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, HttpUrl
 class TrailProperties(BaseModel):
     name: str | None = None
     length_meters: float | None = None
+    trail_type: str | None = None
     difficulty: str | None = None
     surface: str | None = None
     allowed_uses: list[str] = Field(default_factory=list)
