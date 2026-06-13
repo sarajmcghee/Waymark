@@ -143,7 +143,9 @@ generation:
 
 Duration assumes a 5 km/h walking pace, with a 15% adjustment for moderate
 trails and 35% for hard trails. Difficulty is normalized to `easy`, `moderate`,
-or `hard`; category is normalized to `walk`, `moderate_hike`, or `major_hike`.
+or `hard`. Distance provides a minimum difficulty: trails from 3 to under 8
+miles are at least moderate, and trails 8 miles or longer are hard. Category is
+normalized to `walk`, `moderate_hike`, or `major_hike`.
 
 Standalone OSM sidewalks are excluded from trail responses by default. Clients
 that also need pedestrian infrastructure can opt in:

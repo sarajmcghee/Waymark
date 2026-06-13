@@ -7,9 +7,22 @@ from app.trails import (
 
 
 def test_normalizes_difficulty_to_three_buckets():
-    assert _normalized_difficulty([], ["footpath"]) == "easy"
-    assert _normalized_difficulty(["Class 3: Developed"], []) == "moderate"
-    assert _normalized_difficulty(["demanding_mountain_hiking"], []) == "hard"
+    assert _normalized_difficulty([], ["footpath"], 2.5) == "easy"
+    assert (
+        _normalized_difficulty(["Class 3: Developed"], [], 2.5)
+        == "moderate"
+    )
+    assert (
+        _normalized_difficulty(["demanding_mountain_hiking"], [], 2.5)
+        == "hard"
+    )
+
+
+def test_distance_sets_a_minimum_difficulty():
+    assert _normalized_difficulty([], ["footpath"], 3) == "moderate"
+    assert _normalized_difficulty([], ["footpath"], 7.9) == "moderate"
+    assert _normalized_difficulty([], ["footpath"], 8) == "hard"
+    assert _normalized_difficulty(["easy"], ["footpath"], 25) == "hard"
 
 
 def test_estimated_duration_uses_distance_and_difficulty():

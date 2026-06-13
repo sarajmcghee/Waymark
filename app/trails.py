@@ -513,6 +513,7 @@ def nearby_trails(
 def _normalized_difficulty(
     raw_difficulties: list[str],
     trail_types: list[str],
+    distance_miles: float,
 ) -> str:
     values = " ".join(raw_difficulties + trail_types).lower()
     hard_markers = (
@@ -533,11 +534,23 @@ def _normalized_difficulty(
         "class 3",
     )
 
+    tagged_difficulty = "easy"
     if any(marker in values for marker in hard_markers):
-        return "hard"
-    if any(marker in values for marker in moderate_markers):
-        return "moderate"
-    return "easy"
+        tagged_difficulty = "hard"
+    elif any(marker in values for marker in moderate_markers):
+        tagged_difficulty = "moderate"
+
+    distance_difficulty = "easy"
+    if distance_miles >= 8:
+        distance_difficulty = "hard"
+    elif distance_miles >= 3:
+        distance_difficulty = "moderate"
+
+    rank = {"easy": 0, "moderate": 1, "hard": 2}
+    return max(
+        (tagged_difficulty, distance_difficulty),
+        key=rank.__getitem__,
+    )
 
 
 def _wanderly_category(distance_miles: float, difficulty: str) -> str:
@@ -666,6 +679,7 @@ def wanderly_nearby_trails(
         difficulty = _normalized_difficulty(
             row["raw_difficulties"] or [],
             row["trail_types"] or [],
+            distance_miles,
         )
         trails.append(
             WanderlyTrail(
